@@ -31,7 +31,10 @@ const PINNED = "pinned";
 const PICKED = "picked";
 const MAX_PICKED = 8;
 // The files whose change means the chart or the drawing's progress is new.
-const WATCHED = /\/(chart|graph|progress)\.json$/;
+// The pid goes when a drawing ends, so its end shows at once.
+const WATCHED = /\/((chart|graph|progress)\.json|pid)$/;
+// The places remembered to come back to, the least recently left forgotten first.
+const MAX_VIEWS = 8;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -87,11 +90,12 @@ export default class Chartroom extends View {
     this.views = new Map();
     this.size = { width: 460, height: 600 };
     this.handle = cx.focus_handle();
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
     this.moveTo(JSON.stringify(this.where()), this.where());
     this.wasShown = isShown();
     if (this.wasShown) this.refresh(cx);
     cx.timer.every(READ_MS, (cx) => {
-      if (isShown() && (this.place?.on || !this.chart || this.isDrawing)) this.refresh(cx);
+      if (isShown() && (this.place?.on || !this.chart || this.isDrawing || this.error)) this.refresh(cx);
     });
     // pane.go moves onto the panel too ("focusable" in mod.json).
     cx.spawn(async (cx) => {
@@ -114,30 +118,40 @@ export default class Chartroom extends View {
     return this.pinned ? { cwd: this.pinned.folder, on: this.pinned.on ?? null, space: null } : location();
   }
 
+  // A place seen before comes back as it was left. A new one keeps what shows until its read says
+  // whether it is the same project (a cd inside it keeps the level and the card picked) or another.
   moveTo(context, place) {
-    if (this.context) this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, progress: this.progress, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    if (this.context) this.remember();
     const view = this.views.get(context);
     this.context = context;
     this.place = place;
-    this.folder = view?.folder ?? null;
-    this.kind = view?.kind ?? "none";
-    this.chart = view?.chart ?? null;
-    this.text = view?.text ?? null;
-    this.progress = view?.progress ?? null;
-    this.isDrawing = view?.isDrawing ?? false;
-    this.focus = view?.focus ?? null;
-    this.selected = view?.selected ?? null;
     this.error = "";
-    this.isChecked = Boolean(view);
+    // A new count ends the watch of the place left; the next read watches this one's.
+    this.watchCount = (this.watchCount ?? 0) + 1;
     this.watched = null;
+    if (view) Object.assign(this, view, { isChecked: true });
+    else this.isChecked = Boolean(this.chart);
+  }
+
+  remember() {
+    this.views.delete(this.context);
+    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value);
   }
 
   refresh(cx) {
     const place = this.where();
     const context = JSON.stringify(place);
     if (context !== this.context) this.moveTo(context, place);
-    if (!place.cwd || this.isReading) return;
+    if (!place.cwd) return;
+    // Asked again while reading: read once more when this read is done, as what changed may have
+    // changed after this read looked.
+    if (this.isReading) {
+      this.isStale = true;
+      return;
+    }
     this.isReading = true;
+    this.isStale = false;
     cx.spawn(async (cx) => {
       try {
         await this.read(context, place, cx);
@@ -146,7 +160,7 @@ export default class Chartroom extends View {
       } finally {
         this.isReading = false;
         if (context === this.context) this.isChecked = true;
-        else if (isShown()) this.refresh(cx);
+        if ((context !== this.context || this.isStale) && isShown()) this.refresh(cx);
         cx.notify();
       }
     });
@@ -158,6 +172,7 @@ export default class Chartroom extends View {
     if (result.code === 3) return this.forget();
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
+    if (found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
     Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
     if (found.kind === "none") Object.assign(this, { chart: null, text: null });
     else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length);
@@ -176,7 +191,7 @@ export default class Chartroom extends View {
   }
 
   forget() {
-    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, isDrawing: false, error: "" });
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
   }
 
   // Reads again when the chart or the drawing's progress changes: in .chartroom while the panel's
@@ -185,14 +200,15 @@ export default class Chartroom extends View {
     const dir = `${this.folder}/${this.kind === "floorplan" && !this.isDrawing ? "floorplan" : ".chartroom"}`;
     if (place.on || this.watched === dir) return;
     this.watched = dir;
+    const count = ++this.watchCount;
     cx.spawn(async (cx) => {
       try {
-        while (this.watched === dir) {
+        while (this.watchCount === count) {
           const paths = await watchFolder(dir);
-          if (this.watched === dir && isShown() && paths.some((path) => path === dir || WATCHED.test(path))) this.refresh(cx);
+          if (this.watchCount === count && isShown() && paths.some((path) => path === dir || WATCHED.test(path))) this.refresh(cx);
         }
       } catch (error) {
-        if (this.watched === dir) this.watched = null;
+        if (this.watchCount === count) this.watched = null;
         console.log(`chartroom: stopped watching ${dir}: ${error}`);
       }
     });

@@ -23,6 +23,7 @@ export function countOf(progress) {
 
 // The words for a drawing underway, for the strip over a chart and for the status bar.
 export function stepWords(progress) {
+  if (progress?.step === "done") return "Finishing";
   const step = STEPS.find((one) => one.step === progress?.step);
   if (!step) return "Starting";
   const count = countOf(progress);
@@ -37,7 +38,7 @@ export function stopButton(t, onStop) {
 
 // A first drawing: each step, done, underway or to come, and a way to stop.
 export function firstDrawing({ t, name, progress, onStop }) {
-  const at = Math.max(0, STEPS.findIndex((one) => one.step === progress?.step));
+  const at = progress?.step === "done" ? STEPS.length : Math.max(0, STEPS.findIndex((one) => one.step === progress?.step));
   const row = (one, index) => {
     const isDone = index < at;
     const isNow = index === at;
