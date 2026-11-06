@@ -10,7 +10,7 @@ The panel draws the chart itself, with your own Claude: it reads the code, asks 
 - **Ask about it**: pick a card and ask your own Claude about it at the foot of the details ("What breaks if this goes?"), or about the level with no card picked. It reads the chart and, where it needs to, the code, with only the tools that read, in the background. The answer shows under the details, and a click on it lights the cards it is about on the chart. A project keeps its latest twenty answers.
 - **A card's details**: what it does, what it uses and what uses it (with the requests or imports in between), and for a file its endpoints.
 - **Any project**: the focused space's by default, or one picked from every space's project and folders chosen by hand, each marked with whether it has a chart yet.
-- **Full size**: the square in the header (or `f`) opens the Chartroom in a tab of its own, on the same project and level. As any pane, `⌘⇧↵` zooms it, and the window's full screen makes it the whole screen. A wide view fits more cards on a row and puts the details beside the chart.
+- **Full size, by default**: the **Chartroom** button in the tab bar (or `⌥⌘F`) opens the space's Chartroom in a tab of its own, on the space's project, or goes to it when it is open; from it, the same button goes back to the tab you came from. The side panel beside the terminals is `⌥⇧⌘F`, and its square (or `f`) goes to that tab, or opens it on the level the panel shows. As any pane, `⌘⇧↵` zooms it, and the window's full screen makes it the whole screen.
 - **Smooth**: a level fades in when you go inside a part or back up, a picked card's lines fade in, and the cards glide to their new places when the view is resized.
 - **Drawing and updating**: **Draw the chart** starts it in the background and shows each step as it goes; the header's pen brings it up to date, asking Claude only about the files that changed. It keeps running when the panel closes, and **Stop** ends it.
 
@@ -33,7 +33,7 @@ From a checkout, with the Herdr app opened once:
 ./install.sh             # or ./install.sh <layout>
 ```
 
-It installs ELK (`bun install`), links the mod into `~/.config/herdr-app/mods/`, binds `cmd-alt-f` (which makes `keys.json` yours: Herdr no longer adds its new default shortcuts to it on an upgrade), and adds the panel and a **Chartroom** button to the current layout, before the Quarterdeck's when that is there. Herdr resets its own layouts on start, so the script tells you how to clone one first. Run it again after a pull so the app loads the new mod.
+It installs ELK (`bun install`), links the mod into `~/.config/herdr-app/mods/`, binds `cmd-alt-f` (full size) and `cmd-alt-shift-f` (the side panel), moving a key it bound before but never one you bound yourself (binding keys makes `keys.json` yours: Herdr no longer adds its new default shortcuts to it on an upgrade), and adds the panel and a **Chartroom** button to the current layout, before the Quarterdeck's when that is there. Herdr resets its own layouts on start, so the script tells you how to clone one first. Run it again after a pull so the app loads the new mod.
 
 Needs Bun, and the Claude Code CLI logged in.
 

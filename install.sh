@@ -1,6 +1,7 @@
 #!/bin/sh
 # Puts the Chartroom into the Herdr app: links the mod into ~/.config/herdr-app/mods, binds
-# cmd-alt-f in keys.json, and adds the panel and the tab bar's button to a layout of your own.
+# cmd-alt-f (full size) and cmd-alt-shift-f (the panel) in keys.json, and adds the panel and the
+# tab bar's button to a layout of your own.
 # Herdr replaces its own layouts (main, terminals, win98) on every start, so for one of those it
 # says how to clone it first. Run it again any time, after a pull too: the mod is linked anew (from
 # whichever chartroom checkout runs it), keys and layouts already set are left alone, and every
@@ -41,19 +42,27 @@ link_mod() {
   echo "mod: linked $dest"
 }
 
-add_key() {
-  keys="$app_home/keys.json" ours="$here/keys.json"
-  key=$(jq -r '.global | keys[0]' "$ours")
-  action=$(jq -r --arg k "$key" '.global[$k]' "$ours")
+# Each key in keys.json: added when free, and moved to its new action when it still does one the
+# Chartroom gave it before (layout.toggle:chartroom or a chartroom.* command). A key the person
+# bound to something else is left alone. keys.json is kept beside it once before the first change.
+add_keys() {
+  keys="$app_home/keys.json" ours="$here/keys.json" kept=""
   [ -f "$keys" ] || echo '{}' >"$keys"
-  bound=$(jq -r --arg k "$key" '.global[$k] // empty' "$keys")
-  if [ "$bound" = "$action" ]; then echo "key: $key already opens the Chartroom"; return; fi
-  if [ -n "$bound" ]; then echo "key: $key does $bound; bind $action to a free key in $keys yourself" >&2; return; fi
-  cp "$keys" "$keys.backup-$stamp"
-  # Written beside it first, so a failing jq leaves keys.json as it was.
-  jq --arg k "$key" --arg a "$action" '.global[$k] = $a' "$keys.backup-$stamp" >"$keys.tmp" || { rm -f "$keys.tmp"; fail "could not add $key to $keys"; }
-  mv "$keys.tmp" "$keys"
-  echo "key: $key opens the Chartroom (keys.json was kept as keys.json.backup-$stamp)"
+  for key in $(jq -r '.global | keys[]' "$ours"); do
+    action=$(jq -r --arg k "$key" '.global[$k]' "$ours")
+    bound=$(jq -r --arg k "$key" '.global[$k] // empty' "$keys")
+    if [ "$bound" = "$action" ]; then echo "key: $key already does $action"; continue; fi
+    case "$bound" in
+      ""|layout.toggle:chartroom|chartroom.*) ;;
+      *) echo "key: $key does $bound; bind $action to a free key in $keys yourself" >&2; continue ;;
+    esac
+    if [ -z "$kept" ]; then cp "$keys" "$keys.backup-$stamp" && kept=yes; fi
+    # Written beside it first, so a failing jq leaves keys.json as it was.
+    jq --arg k "$key" --arg a "$action" '.global[$k] = $a' "$keys" >"$keys.tmp" || { rm -f "$keys.tmp"; fail "could not set $key in $keys"; }
+    mv "$keys.tmp" "$keys"
+    echo "key: $key does $action${bound:+ (it did $bound)}"
+  done
+  if [ -n "$kept" ]; then echo "key: keys.json was kept as keys.json.backup-$stamp"; fi
 }
 
 shown_layout() {
@@ -85,7 +94,7 @@ install_packages() {
 
 link_mod
 install_packages
-add_key
+add_keys
 add_blocks "${1:-$(shown_layout)}"
 herdr-app check "$app_home/mods/chartroom"
-echo "Chartroom in the tab bar, or its key in keys.json, opens and closes it."
+echo "Chartroom in the tab bar, or cmd-alt-f, opens it full size; cmd-alt-shift-f opens it beside the terminals."
