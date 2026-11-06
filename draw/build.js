@@ -1,6 +1,5 @@
 // The chart the panel reads (.chartroom/chart.json): the parts and outside services as nodes, the
-// files and endpoints with their names, and every link, by file and by part. Its shape is the one
-// floorplan's maps have, so the panel reads both the same way.
+// files and endpoints with their names, and every link, by file and by part.
 import { routeKey } from "./describe.js";
 import { OTHER_ID } from "./parts.js";
 

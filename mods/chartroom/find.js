@@ -1,7 +1,6 @@
 // The shell the panel runs, on whichever machine a project is on: finding a project's chart and
 // how its drawing is going, and starting and stopping a drawing. A project's chart is in
-// .chartroom/ (drawn here) or floorplan/ (floorplan's), in its folder or the nearest folder above
-// it, short of that machine's home.
+// .chartroom/, in its folder or the nearest folder above it, short of that machine's home.
 
 // up <folder> <test>: the nearest folder from <folder> up, short of home, for which <test> holds.
 // nearest <folder>: the folder with a chart, or with a .chartroom of the folder itself or of its
@@ -11,20 +10,20 @@
 // left by a drawer that died, and since taken by another program, is not one.
 const FUNCTIONS = [
   'up() { f=${1%/}; while [ -n "$f" ] && [ "$f" != "$HOME" ]; do if eval "$2"; then printf "%s" "$f"; return 0; fi; f=${f%/*}; done; return 1; };',
-  'charted() { up "$1" \'[ -f "$f/.chartroom/chart.json" ] || [ -f "$f/floorplan/graph.json" ]\'; };',
-  'nearest() { start=${1%/}; top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); up "$1" \'[ -f "$f/.chartroom/chart.json" ] || [ -f "$f/floorplan/graph.json" ] || { [ -d "$f/.chartroom" ] && { [ "$f" = "$start" ] || [ "$f" = "$top" ]; }; }\'; };',
+  'charted() { up "$1" \'[ -f "$f/.chartroom/chart.json" ]\'; };',
+  'nearest() { start=${1%/}; top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); up "$1" \'[ -f "$f/.chartroom/chart.json" ] || { [ -d "$f/.chartroom" ] && { [ "$f" = "$start" ] || [ "$f" = "$top" ]; }; }\'; };',
   'drawing() { p=$(cat "$1/pid" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -p "$p" -o command= 2>/dev/null | grep -q "draw/draw.js"; };',
 ].join(" ");
 
 // sh -c FIND_MAP find <folder>, in lines: the folder, whether a drawing is "running" or "idle", the
 // drawing's progress (JSON, or nothing), the end of its log when it is not running (or nothing),
-// which chart it is ("chartroom", "floorplan" or "none"), then the chart. Exits 3 when there is no
+// whether there is a chart ("chartroom" or "none"), then the chart. Exits 3 when there is no
 // folder with either.
 export const FIND_MAP = `${FUNCTIONS} d=$(nearest "$1") || exit 3; c="$d/.chartroom"; printf "%s\\n" "$d";
 if drawing "$c"; then echo running; else echo idle; fi;
 if [ -f "$c/progress.json" ]; then tr -d "\\n" < "$c/progress.json"; fi; printf "\\n";
 if ! drawing "$c" && [ -f "$c/draw.log" ]; then tail -n 4 "$c/draw.log" | tr "\\n" " " | cut -c 1-400; fi; printf "\\n";
-if [ -f "$c/chart.json" ]; then echo chartroom; exec cat "$c/chart.json"; elif [ -f "$d/floorplan/graph.json" ]; then echo floorplan; exec cat "$d/floorplan/graph.json"; else echo none; fi`;
+if [ -f "$c/chart.json" ]; then echo chartroom; exec cat "$c/chart.json"; else echo none; fi`;
 
 // sh -c FIND_CHARTS find <folder>...: a line per folder, the folder and a tab, then the folder with
 // its chart or nothing.
@@ -100,7 +99,7 @@ export function asksFrom(stdout) {
 export const CHANGED = `root=$1; chart=$2; shift 2; commits=0; files=0;
 while [ $# -ge 2 ]; do d="$root\${1:+/$1}"; h=$2; shift 2;
   n=$(git -C "$d" rev-list --count "$h..HEAD" 2>/dev/null) || n=1;
-  f=$(git -C "$d" status --porcelain 2>/dev/null | cut -c4- | while IFS= read -r p; do case "$p" in (.chartroom*|floorplan/*) ;; (*) if [ "$d/$p" -nt "$chart" ]; then echo x; fi ;; esac; done | wc -l | tr -d " ");
+  f=$(git -C "$d" status --porcelain 2>/dev/null | cut -c4- | while IFS= read -r p; do case "$p" in (.chartroom*) ;; (*) if [ "$d/$p" -nt "$chart" ]; then echo x; fi ;; esac; done | wc -l | tr -d " ");
   commits=$((commits + n)); files=$((files + f)); done; echo "$commits $files"`;
 
 // The file name a card's explanation is kept under (.chartroom/explains/<key>.json): a short hash of

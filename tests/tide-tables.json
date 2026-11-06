@@ -1,5 +1,5 @@
 {
-  "schema": "floorplan/graph@1",
+  "schema": "chartroom/chart@1",
   "meta": { "rootName": "tide-tables", "root": "/work/tide-tables" },
   "project": { "name": "Tide Tables", "summary": "Shows the tides for every port, and warns harbour masters before a spring tide." },
   "nodes": [

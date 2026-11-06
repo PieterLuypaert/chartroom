@@ -26,13 +26,11 @@ const EXPLAIN_MODEL = process.env.CHARTROOM_DESCRIBE_MODEL || "sonnet";
 const text = { type: "string" };
 export const ASK_SCHEMA = { type: "object", required: ["answer", "cards"], properties: { answer: text, cards: { type: "array", items: text } } };
 
-// The project's chart: the Chartroom's own, else floorplan's.
+// The project's chart.
 export async function chartIn(folder) {
-  for (const path of [join(folder, ".chartroom", "chart.json"), join(folder, "floorplan", "graph.json")]) {
-    const found = await readFile(path, "utf8").catch(() => null);
-    if (found !== null) return readChart(found);
-  }
-  throw new Error("this project has no chart to ask about yet");
+  const found = await readFile(join(folder, ".chartroom", "chart.json"), "utf8").catch(() => null);
+  if (found === null) throw new Error("this project has no chart to ask about yet");
+  return readChart(found);
 }
 
 const cardLine = (ref, label, about) => `CARD ${ref}  ${label}${about ? ` — ${about}` : ""}`;
