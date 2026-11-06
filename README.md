@@ -6,7 +6,9 @@ An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
-![The Chartroom showing the chart of Portly, a terminal tool, with one part picked](preview.png)
+![A level of Portly's chart in the Chartroom: the file Typed commands picked, its lines lit to the six parts it uses](docs/chart.png)
+
+[The whole window](preview.png): the chart, the details of the card picked, and the minimap.
 
 ## Features
 
@@ -75,3 +77,7 @@ The tests need no Claude and no Herdr app: a stand-in `claude` (`tests/fake-clau
 ## Build it from the recipe
 
 [RECIPE.md](RECIPE.md) describes the Chartroom for an agent to build from an empty folder, as [herdr.dev/mods](https://herdr.dev/mods) shares mods.
+
+## License
+
+[MIT](LICENSE)
