@@ -7,6 +7,7 @@ The panel draws the chart itself, with your own Claude: it reads the code, asks 
 ## What it shows
 
 - **The chart**: the parts of the app at the top, and inside any part its parts and files, laid out by [ELK](https://eclipse.dev/elk/) in three bands: what uses the part, what is inside it, and what it uses (outside services as slim pills). Lines run at right angles around the cards, each meeting a card at a port of its own. It reads left to right where there is room, top to bottom in the panel, and opens with what the level is and does. Picking or pointing at a card lights its route; on a busy level the other lines stay faint until then. Drag the chart, or scroll, to move around it; `⌘` + scroll zooms around the pointer, `−` `+` zoom and `0` fits.
+- **Explained when picked**: a card that stays picked a moment is explained by your own Claude at the top of its details (what it does, how it works in a few steps, what it relies on, what to watch out for), and the cards the explanation names light up. Each card is explained once, on a faster model, and kept until the chart changes; `e` turns it off and on.
 - **Ask about it**: pick a card and ask your own Claude about it at the foot of the details ("What breaks if this goes?"), or about the level with no card picked. It reads the chart and, where it needs to, the code, with only the tools that read, in the background. The answer shows under the details, and a click on it lights the cards it is about on the chart. A project keeps its latest twenty answers.
 - **A card's details**: what it does, what it uses and what uses it (with the requests or imports in between), and for a file its endpoints.
 - **Any project**: the focused space's by default, or one picked from every space's project and folders chosen by hand, each marked with whether it has a chart yet.
@@ -50,6 +51,7 @@ Needs Bun, and the Claude Code CLI logged in.
 | `f` | the Chartroom full size, in a tab of its own | |
 | `−` / `+` / `0` | zoom out, in, or fit the width | |
 | `a` | ask your Claude about the card picked (esc leaves the field) | |
+| `e` | explain a card when it is picked, or not | |
 | `esc` | up a level, or close | back to the chart |
 
 A click picks a card, a double click goes inside it, and the trail under the header leads back up.

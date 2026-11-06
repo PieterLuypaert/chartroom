@@ -211,8 +211,8 @@ function plainCard(t, box, isSelected, onPick, onHover) {
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
 // what was asked about this project, and at the foot a field to ask the person's own Claude about
 // the card picked (or the level).
-export function detailsView({ t, details, level, chart, onPick, onOpen, ask }) {
-  const body = details ? cardDetails(t, details, onPick, onOpen) : levelDetails(t, level, chart);
+export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain }) {
+  const body = details ? cardDetails(t, details, onPick, onOpen, explain) : levelDetails(t, level, chart);
   return v_flex().size_full().min_h(0)
     .child(v_flex().id("details").flex_1().min_h(0).overflow_y_scrollbar().px(8).py(8).gap(2).children(body)
       .children(answers(t, ask)))
@@ -273,14 +273,31 @@ function levelDetails(t, level, chart) {
   ];
 }
 
-function cardDetails(t, { card, uses, usedBy }, onPick, onOpen) {
+function cardDetails(t, { card, uses, usedBy }, onPick, onOpen, explain) {
   return [
     head(t, card.label, kindOf(card).word, card.isOpenable ? openButton(t, card, onOpen) : null),
     text(t, card.summary),
+    ...explained(t, explain),
     ...(card.kind === "file" ? fileFacts(t, card) : []),
     ...section(t, "Uses", uses, "to", onPick),
     ...section(t, "Used by", usedBy, "from", onPick),
   ];
+}
+
+// The picked card explained by the person's own Claude: on its way, its words (Markdown), or why
+// there are none; nothing while explaining is off (e) or the card was only just picked.
+function explained(t, explain) {
+  const one = explain?.record;
+  if (!explain?.isOn || !one) return [];
+  const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.foreground).child(TextView.markdown(`explained-${one.id ?? one.card}`, one.answer || ""))
+    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading it…")
+      : div().text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`);
+  return [v_flex().mx(4).mt(6).mb(4).px(11).py(9).gap(6).rounded(8).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "12"))
+    .child(h_flex().gap(6).items_center()
+      .child(div().size(6).flex_none().rounded_full().bg(t.accent))
+      .child(div().flex_1().text_size(11).font_medium().text_color(t.accent).child("Explained by your Claude"))
+      .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${one.cards.length} lit on the chart`))))
+    .child(body)];
 }
 
 // A name and a pill, as the Changes panel heads its list.
