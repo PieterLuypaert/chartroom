@@ -153,3 +153,12 @@ export function detailsOf(level, id) {
   const usedBy = level.lines.filter((line) => line.to === id).map((line) => ({ card: cards.get(line.from), line }));
   return { card, uses, usedBy };
 }
+
+// The card on the level of `focus` that a part or file anywhere in the chart shows as ("n:<id>" or
+// "f:<path>"): itself, the part on this level it is inside, or the part beside this level it is in.
+// Null for one the chart does not have, and for the focus itself.
+export function cardIdOn(chart, focus, ref) {
+  const at = focus !== null && chart.nodes.has(focus) ? focus : null;
+  const spot = spotOf(chart, ref);
+  return spot ? cardOf(chart, at, spot)?.id ?? null : null;
+}

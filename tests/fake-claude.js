@@ -33,5 +33,12 @@ function described() {
   };
 }
 
-const answer = schema.properties.parts ? parts() : described();
+// A question: an answer naming the first two cards listed, and one the chart does not have.
+function answered() {
+  const cards = [...prompt.matchAll(/^CARD (\S+)/gm)].map((m) => m[1]);
+  log(`ask ${/^Question: (.*)$/m.exec(prompt)?.[1] ?? ""}`);
+  return { answer: `  It is about ${cards.slice(0, 2).join(" and ")}.  `, cards: [...cards.slice(0, 2), "n:not-on-the-chart"] };
+}
+
+const answer = schema.properties.parts ? parts() : schema.properties.answer ? answered() : described();
 console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(answer), structured_output: answer }));

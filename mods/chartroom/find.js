@@ -66,3 +66,29 @@ export function chartedFrom(stdout) {
   }
   return charted;
 }
+
+// sh -c START_ASK ask <folder> <ask.js> <id> <question as JSON>: asks the folder's Claude in the
+// background; the answer lands in .chartroom/asks/<id>.json.
+export const START_ASK = `command -v bun >/dev/null 2>&1 || { echo "bun is not on the PATH the Herdr app runs programs with" >&2; exit 4; };
+[ -f "$2" ] || { echo "there is no $2: run install.sh again" >&2; exit 4; };
+cd "$1" && mkdir -p .chartroom/asks && (nohup bun "$2" "$1" "$3" "$4" </dev/null >".chartroom/asks/$3.log" 2>&1 &) && echo started`;
+
+// sh -c FIND_ASKS asks <folder>: the latest answers, newest first, one JSON per line.
+export const FIND_ASKS = 'ls -t "$1/.chartroom/asks" 2>/dev/null | grep -E "^[0-9]+\\.json$" | head -n 12 | while IFS= read -r n; do tr -d "\\n" < "$1/.chartroom/asks/$n"; printf "\\n"; done';
+
+// sh -c STOP_ASK stop <pid>: stops a question still being answered, when that pid is one.
+export const STOP_ASK = 'ps -p "$1" -o command= 2>/dev/null | grep -q "draw/ask.js" || { echo "that question is answered already" >&2; exit 1; }; kill "$1"';
+
+// FIND_ASKS' lines as answers, a line that is not one (half written) left out.
+export function asksFrom(stdout) {
+  const asks = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      asks.push(JSON.parse(line));
+    } catch (error) {
+      console.log(`chartroom: an answer was left out, as it is not JSON yet: ${error.message}`);
+    }
+  }
+  return asks;
+}
