@@ -4,9 +4,9 @@
 // the chart itself: it starts draw/draw.js in the background, which reads the code and asks the
 // person's own Claude for the app's parts and a description of every file, and shows how far it
 // is until the chart is there. A map floorplan made shows too. With props {button: true} it is the
-// tab bar's button that opens and closes the panel; with props {tab: true, project, focus,
-// selected} it is the Chartroom full size, in a tab of its own, on the project and level the panel
-// was showing.
+// tab bar's button, which opens the space's Chartroom full size, in a tab of its own (as ⌥⌘F does,
+// through the command chartroom.full), and from that tab goes back; with props {tab: true, project,
+// focus, selected} it is that tab. The panel beside the terminals stays a key away (⌥⇧⌘F).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
@@ -159,11 +159,41 @@ export default class Chartroom extends View {
     });
   }
 
-  // The button takes no keys: pane.go, which may land on it as on the panel, moves on below it.
+  // The button takes no keys: pane.go, which may land on it as on the panel, moves on below it. It
+  // is the one copy that hears chartroom.full (⌥⌘F): the panel and the tabs leave that command be.
   passFocus(cx) {
+    this.back = new Map();
     cx.spawn(async () => {
-      for (;;) if ((await nextCommand()) === "focus") run("pane.go", { direction: "down" });
+      for (;;) {
+        const command = await nextCommand();
+        if (command === "focus") run("pane.go", { direction: "down" });
+        else if (/^(chartroom[.:])?full$/.test(command)) this.toggleFullSize();
+      }
     });
+  }
+
+  // The space's Chartroom tab: the one showing, the one there (gone to), or a new one on the space's
+  // project. From it, back to the tab it was opened from.
+  toggleFullSize() {
+    const space = spaces().find((one) => one.active);
+    if (!space) return;
+    const shown = space.tabs.find((tab) => tab.active);
+    const ours = this.fullSizeTab(space);
+    if (ours && shown?.id === ours) {
+      const back = this.back.get(space.id);
+      if (back && space.tabs.some((tab) => tab.id === back)) run("tab.select", { id: back });
+      return;
+    }
+    if (shown) this.back.set(space.id, shown.id);
+    if (ours) return run("tab.select", { id: ours });
+    const project = { folder: space.folder, on: space.machine ?? null, label: space.name };
+    run("tab.new", { space: space.id, name: "Chartroom", mod: MOD, props: { tab: true, project } });
+  }
+
+  // The tab in this space whose pane is the Chartroom, if there is one.
+  fullSizeTab(space) {
+    const tabs = new Set(space.tabs.map((tab) => tab.id));
+    return panes().find((pane) => pane.mod === MOD && tabs.has(pane.tab))?.tab ?? null;
   }
 
   // The project charted: the one picked, else the focused space's.
@@ -752,6 +782,10 @@ export default class Chartroom extends View {
   openFullSize() {
     const place = this.place;
     if (!place?.cwd) return;
+    // The space's Chartroom tab when it has one; else a new one on this project and level.
+    const space = spaces().find((one) => one.active);
+    const ours = space ? this.fullSizeTab(space) : null;
+    if (ours) return run("tab.select", { id: ours });
     const folder = this.folder ?? place.cwd;
     const project = this.pinned ?? { folder, on: place.on, label: this.chart?.name ?? baseName(folder) };
     run("tab.new", { space: this.spaceFor(place), name: "Chartroom", mod: MOD, props: { tab: true, project, focus: this.focus, selected: this.selected } });
@@ -854,15 +888,18 @@ export default class Chartroom extends View {
 
   // The tab bar's button, drawn as the tab bar draws Files and Changes, in the tab bar's row; the
   // last block of the row keeps the tab bar's own room on its right.
+  // Lit while the space shows its Chartroom tab.
   button(t) {
-    const isOn = isShown();
+    const space = spaces().find((one) => one.active);
+    const shown = space?.tabs.find((tab) => tab.active)?.id;
+    const isOn = Boolean(space && shown && this.fullSizeTab(space) === shown);
     const isLast = find(layout(), "tabs-row")?.children?.at(-1)?.id === BUTTON;
     return h_flex().size_full().pr(isLast ? 10 : 3).items_center().justify_end().bg(t.chrome).border_b(1).border_color(t.border)
       .child(h_flex().id(BUTTON).h(26).px(8).gap(5).flex_none().items_center().rounded(6).text_size(12)
         .bg(isOn ? t.selected : t.chrome).text_color(isOn ? t.foreground : t.muted).hover((s) => s.bg(t.hover)).cursor_pointer()
-        .tooltip(panel() ? "Chartroom (⌥⌘F)" : "Add the Chartroom's panel with install.sh")
+        .tooltip(isOn ? "Back to the tab before (⌥⌘F)" : `Chartroom, full size (⌥⌘F)${panel() ? " · beside the terminals: ⌥⇧⌘F" : ""}`)
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_click(() => panel() && run("layout.toggle", { id: BLOCK }))
+        .on_click(() => this.toggleFullSize())
         .child(svg(`${ICONS}/layers.svg`).size(14)).child("Chartroom"));
   }
 
