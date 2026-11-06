@@ -92,3 +92,13 @@ export function asksFrom(stdout) {
   }
   return asks;
 }
+
+// sh -c CHANGED changed <folder> <chart file> [<repo path> <head>]...: how far the code moved on
+// since the chart, as "<commits> <files>": the commits past the head each repo was at, and the
+// files changed (not committed) after the chart was written. A head git no longer knows (a rebase)
+// counts as a commit.
+export const CHANGED = `root=$1; chart=$2; shift 2; commits=0; files=0;
+while [ $# -ge 2 ]; do d="$root\${1:+/$1}"; h=$2; shift 2;
+  n=$(git -C "$d" rev-list --count "$h..HEAD" 2>/dev/null) || n=1;
+  f=$(git -C "$d" status --porcelain 2>/dev/null | cut -c4- | while IFS= read -r p; do case "$p" in (.chartroom*|floorplan/*) ;; (*) if [ "$d/$p" -nt "$chart" ]; then echo x; fi ;; esac; done | wc -l | tr -d " ");
+  commits=$((commits + n)); files=$((files + f)); done; echo "$commits $files"`;
