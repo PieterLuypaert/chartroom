@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { columnsFor, layOut, SIZES } from "../mods/chartroom/layout.js";
+import { CARD_SIZES, columnsFor, elkLevel, fromElk, layOut, SIZES } from "../mods/chartroom/layout.js";
 import { levelOf, readChart } from "../mods/chartroom/model.js";
 
 const chart = readChart(readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8"));
@@ -114,5 +114,40 @@ describe("layOut", () => {
 
   test("is empty for a level with nothing on it", () => {
     expect(layOut({ inside: [], outside: [], lines: [] }, 460)).toEqual({ cards: [], curves: [], height: SIZES.pad });
+  });
+});
+
+describe("fromElk", () => {
+  const level = levelOf(chart, "api");
+  const elk = {
+    direction: "RIGHT",
+    width: 800,
+    height: 300,
+    cards: { "n:site": [16, 40], "n:jobs": [16, 100], "n:api.routes": [300, 40], "n:api.store": [300, 140], "f:api/src/index.ts": [300, 220], "n:db": [600, 140] },
+    lines: { "n:api.routes>n:api.store": [[536, 79], [560, 79], [560, 179], [300, 179]] },
+  };
+
+  test("places the cards at ELK's places and sizes, at the zoom asked, in the middle of a wider view", () => {
+    const laid = fromElk(level, elk, { zoom: 0.5, viewWidth: 600 });
+    const site = laid.cards.find((card) => card.id === "n:site");
+    expect([site.x, site.y, site.w, site.h]).toEqual([100 + 8, 20, CARD_SIZES.RIGHT.outside.w / 2, CARD_SIZES.RIGHT.outside.h / 2]);
+    expect(laid.width).toBe(500);
+    expect(laid.lines[0].points[0]).toEqual([100 + 268, 39.5]);
+  });
+
+  test("lists the cards band by band, what uses the part first", () => {
+    expect(fromElk(level, elk).cards.map((card) => card.id)).toEqual(["n:site", "n:jobs", "n:api.routes", "n:api.store", "f:api/src/index.ts", "n:db"]);
+  });
+
+  test("words each band over its cards, with how many there are", () => {
+    const bands = fromElk(level, elk, { insideLabel: "Inside Server" }).bands;
+    expect(bands.map((band) => [band.label, band.count])).toEqual([["Used by", 2], ["Inside Server", 3], ["Uses", 1]]);
+    expect(bands[1]).toMatchObject({ x: 300, y: 16, w: CARD_SIZES.RIGHT.inside.w });
+  });
+
+  test("asks draw/lay.js for every card with its band and size, and every line", () => {
+    const asked = elkLevel("k", level, "DOWN");
+    expect(asked.cards.find((card) => card.id === "n:db")).toEqual({ id: "n:db", band: 2, ...CARD_SIZES.DOWN.outside });
+    expect(asked.lines.length).toBe(level.lines.length);
   });
 });
