@@ -292,12 +292,15 @@ function explained(t, explain) {
   if (one.status === "none" || one.status === "failed" || one.status === "stopped") {
     return [v_flex().mx(4).mt(6).mb(4).gap(5)
       .when(one.status !== "none", (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`)))
-      .child(h_flex().id("explain").h(30).px(12).gap(7).items_center().rounded(8).border_1().border_color(thin(t.accent, "66")).bg(thin(t.accent, "12"))
-        .text_size(12).text_color(t.accent).cursor_pointer().hover((s) => s.bg(thin(t.accent, "26"))).tooltip("Your Claude explains it: what it does, how, and what to watch out for (e)")
+      .child(h_flex().id("explain").min_h(48).px(10).py(8).gap(10).items_center().rounded(10).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "10"))
+        .cursor_pointer().hover((s) => s.bg(thin(t.accent, "22")).border_color(t.accent))
         .on_mouse_down("left", stopPress).on_click((_e, cx) => explain.onExplain(cx))
-        .child(div().size(6).flex_none().rounded_full().bg(t.accent))
-        .child(div().flex_1().child(one.status === "none" ? "Explain this with your Claude" : "Try again"))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child("e")))];
+        .child(div().size(28).flex_none().rounded(7).bg(thin(t.accent, "2e")).flex().items_center().justify_center()
+          .child(svg(`${ICONS}/${one.status === "none" ? "search" : "square-pen"}.svg`).size(14).text_color(t.accent)))
+        .child(v_flex().flex_1().min_w(0).gap(2)
+          .child(div().text_size(12.5).font_semibold().text_color(t.accent).child(one.status === "none" ? "Explain this" : "Try again"))
+          .child(div().text_size(11).line_height("15px").text_color(t.muted).child("Your Claude reads it: what it does, how it works, what to watch out for")))
+        .child(div().flex_none().px(6).py(1).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11).font_medium().text_color(t.muted).child("e")))];
   }
   const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.foreground).child(TextView.markdown(`explained-${one.id ?? one.card}`, one.answer || ""))
     : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading it…")
