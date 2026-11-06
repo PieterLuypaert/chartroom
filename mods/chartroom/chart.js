@@ -226,8 +226,8 @@ export function minimapView({ t, map, selected, lighted = new Set(), isDragging,
 }
 
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
-// what was asked on this level, and at the foot a field to ask the person's own Claude about the
-// card picked (or the level).
+// what was asked about that card (or level), and at the foot a field to ask the person's own Claude
+// about it.
 export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain }) {
   const body = details ? cardDetails(t, details, onPick, onOpen, explain) : levelDetails(t, level, chart);
   return v_flex().size_full().min_h(0)
@@ -259,7 +259,6 @@ function answerCard(t, one, ask) {
       .child(div().flex_1().min_w(0).text_size(12.5).font_medium().text_color(t.foreground).child(one.question))
       .when(one.status === "asking", (el) => el.child(div().id(`stop-${one.id}`).flex_none().text_size(11).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
         .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onStop(one, cx)).child("Stop"))))
-    .when(Boolean(one.cardLabel), (el) => el.child(div().text_size(10.5).text_color(t.dim).child(`about ${one.cardLabel}`)))
     .child(body)
     .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().text_size(10.5).text_color(isShown ? t.accent : t.dim)
       .child(isShown ? `Lit on the chart: ${one.cards.length}` : `${one.cards.length} on the chart: click to light them`)));
