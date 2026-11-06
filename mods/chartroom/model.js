@@ -74,16 +74,38 @@ function spotOf(chart, ref) {
   return file ? { node: file.n, file: file.p } : null;
 }
 
-// The card a spot shows as on the level of `focus` (null: the whole app). Inside the focus it is
-// the child part it is in, or its own file when the focus holds it directly. Outside, it is the
-// part beside the focus or beside one of the parts the focus sits in. The focus itself has none.
-function cardOf(chart, focus, spot) {
-  const chain = lineage(chart, spot.node);
+// The card a link's end ("n:<id>", "f:<path>" or "r:<index>") shows as on the level of `focus`
+// (null: the whole app). Inside the focus it is the child part it is in, or its own file when the
+// focus holds it directly. Outside, it is the part beside the focus or beside one of the parts the
+// focus sits in. The focus itself has none. A big chart has tens of thousands of links between a
+// few thousand files in a few dozen parts, so each end's card and each part's are worked out once
+// per level: Herdr interrupts a render that takes longer than about 50 ms.
+function cardsOn(chart, focus) {
+  const around = new Set(focus === null ? [] : lineage(chart, focus));
+  const byPart = new Map();
+  const byRef = new Map();
+  const cardOf = (spot) => {
+    if (!spot) return null;
+    if (focus !== null && spot.node === focus) return spot.file ? { id: `f:${spot.file}`, isInside: true } : null;
+    if (!byPart.has(spot.node)) byPart.set(spot.node, partCardOn(chart, focus, around, spot.node));
+    return byPart.get(spot.node);
+  };
+  return (ref) => {
+    let card = byRef.get(ref);
+    if (card === undefined) {
+      card = cardOf(spotOf(chart, ref));
+      byRef.set(ref, card);
+    }
+    return card;
+  };
+}
+
+// The card a part other than the focus shows as, `around` being the focus and the parts it sits in.
+function partCardOn(chart, focus, around, part) {
+  const chain = lineage(chart, part);
   if (focus === null) return chain.length ? { id: `n:${chain.at(-1)}`, isInside: true } : null;
   const at = chain.indexOf(focus);
-  if (at === 0) return spot.file ? { id: `f:${spot.file}`, isInside: true } : null;
   if (at > 0) return { id: `n:${chain[at - 1]}`, isInside: true };
-  const around = new Set(lineage(chart, focus));
   const beside = chain.find((id) => {
     const parent = chart.nodes.get(id).parent ?? null;
     return parent === null || around.has(parent);
@@ -118,13 +140,12 @@ export function levelOf(chart, focus = null) {
     ...(chart.children.get(at) ?? []).map((id) => partCard(chart, id, true)),
     ...(at === null ? [] : (chart.filesOf.get(at) ?? []).map((path) => fileCard(chart, path))),
   ];
+  const cardOf = cardsOn(chart, at);
   const lines = new Map();
   const outside = new Map();
   for (const link of chart.links) {
-    const a = spotOf(chart, link.a);
-    const b = spotOf(chart, link.b);
-    const from = a && cardOf(chart, at, a);
-    const to = b && cardOf(chart, at, b);
+    const from = cardOf(link.a);
+    const to = cardOf(link.b);
     if (!from || !to || from.id === to.id || (!from.isInside && !to.isInside)) continue;
     for (const end of [from, to]) if (!end.isInside) outside.set(end.id, outside.get(end.id) ?? { usesIn: false, isUsed: false });
     if (!from.isInside) outside.get(from.id).usesIn = true;
@@ -158,6 +179,5 @@ export function detailsOf(level, id) {
 // Null for one the chart does not have, and for the focus itself.
 export function cardIdOn(chart, focus, ref) {
   const at = focus !== null && chart.nodes.has(focus) ? focus : null;
-  const spot = spotOf(chart, ref);
-  return spot ? cardOf(chart, at, spot)?.id ?? null : null;
+  return cardsOn(chart, at)(ref)?.id ?? null;
 }
