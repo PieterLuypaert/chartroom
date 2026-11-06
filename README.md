@@ -4,6 +4,8 @@ An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
+![The Chartroom showing the chart of Portly, a terminal tool, with one part picked](preview.png)
+
 ## Features
 
 - **Chart**: three bands per level (what uses a part, what is inside it, what it uses), laid out with [ELK](https://eclipse.dev/elk/), with lines at right angles.
@@ -12,6 +14,7 @@ The Chartroom reads a project, asks `claude` to name its parts and describe ever
 - **Ask**: ask Claude a question about a card or level, and see the cards in its answer lit on the chart. Each card and level keeps its own questions: picking a card shows only what was asked about it.
 - **Stay current**: the Chartroom notices when the code has moved on since the chart, and an update re-describes only the files that changed.
 - **Any project**: follow the focused space, or pick any project or folder.
+- **Any theme**: it uses only your Herdr theme's colors, so it follows a theme change at once, light or dark.
 
 ## Requirements
 
@@ -27,7 +30,9 @@ cd chartroom
 ./install.sh
 ```
 
-This installs the dependencies, links the mod into `~/.config/herdr-app/mods/`, binds its keys, and adds a **Chartroom** button to the tab bar of your current layout. Run it again after pulling.
+This installs the dependencies, links the mod into `~/.config/herdr-app/mods/`, binds its keys, and adds a **Chartroom** button to the tab bar of your current layout. Herdr replaces its own layouts (`main`, `terminals`, `win98`) on every start, so use a layout of your own: `install.sh` tells you how to clone one.
+
+After pulling, run `./install.sh` again and restart Herdr: it does not reload a linked mod by itself.
 
 ## Usage
 
@@ -62,3 +67,7 @@ bun draw/draw.js <folder>         # draw a chart from the command line
 ```
 
 `draw/` holds the drawing (scan, Claude calls, layout); `mods/chartroom/` holds the panel.
+
+## Build it from the recipe
+
+[RECIPE.md](RECIPE.md) describes the Chartroom for an agent to build from an empty folder, as [herdr.dev/mods](https://herdr.dev/mods) shares mods.
