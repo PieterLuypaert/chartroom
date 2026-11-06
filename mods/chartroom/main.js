@@ -56,6 +56,12 @@ const ZOOM_STEP = 1.2;
 // bigger than this is laid out plainly. Levels one click away are laid out ahead, this many at once.
 const MAX_LAY_ARG = 400 * 1024;
 const MAX_AHEAD = 12;
+// A press that moves this far is a drag of the chart, not a click on a card. The chart moves
+// freely every way, as long as this much of it stays in view.
+const DRAG_STEP = 4;
+const KEEP_IN_VIEW = 120;
+// The heading's height over a wide view's chart, near enough to bound how far it is dragged.
+const HEADING_HEIGHT = 130;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -117,6 +123,8 @@ export default class Chartroom extends View {
     this.hasSize = false;
     // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
     Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
+    // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
+    Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
     Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
@@ -228,6 +236,7 @@ export default class Chartroom extends View {
   enter(cx) {
     const count = ++this.levelCount;
     this.zoom = null;
+    this.pan = { x: 0, y: 0 };
     this.isEntering = true;
     cx.timer.after(ENTER_MS, (cx) => {
       if (this.levelCount !== count) return;
@@ -267,10 +276,49 @@ export default class Chartroom extends View {
     });
   }
 
-  // Zoom to `next` (null: fit the width), the cards gliding there.
-  zoomTo(next, cx) {
+  // Zoom to `next` (null: fit the width), the cards gliding there. With `around` (a point in the
+  // view), what is under it stays under it.
+  zoomTo(next, cx, around = null) {
+    const before = this.zoomNow();
     this.zoom = next === null ? null : Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+    if (next === null) this.pan = { x: 0, y: 0 };
+    else if (around) {
+      const scale = this.zoom / before;
+      this.panTo((this.pan.x + around.x) * scale - around.x, (this.pan.y + around.y) * scale - around.y);
+    }
     this.moving(cx);
+    cx.notify();
+  }
+
+  // Moves the chart to (x, y) from its start, freely, as long as a strip of it stays in view.
+  panTo(x, y) {
+    const laid = this.memo?.laid;
+    const view = this.viewSize ?? { width: this.chartWidth(), height: this.size.height };
+    const width = Math.max(laid?.width ?? 0, KEEP_IN_VIEW);
+    const height = Math.max((laid?.height ?? 0) + (this.isWide() ? HEADING_HEIGHT : 0), KEEP_IN_VIEW);
+    const between = (value, low, high) => Math.min(high, Math.max(low, value));
+    this.pan = { x: between(x, KEEP_IN_VIEW - view.width, width - KEEP_IN_VIEW), y: between(y, KEEP_IN_VIEW - view.height, height - KEEP_IN_VIEW) };
+  }
+
+  // A press on the chart may start a drag of it; it is one once it has moved a few pixels.
+  pressed(e) {
+    this.drag = { x: e.position.x, y: e.position.y, pan: { ...this.pan } };
+    this.didDrag = false;
+  }
+
+  dragged(e, cx) {
+    if (!this.drag) return;
+    const dx = e.position.x - this.drag.x;
+    const dy = e.position.y - this.drag.y;
+    if (!this.didDrag && Math.hypot(dx, dy) < DRAG_STEP) return;
+    this.didDrag = true;
+    this.panTo(this.drag.pan.x - dx, this.drag.pan.y - dy);
+    cx.notify();
+  }
+
+  released(cx) {
+    if (!this.drag) return;
+    this.drag = null;
     cx.notify();
   }
 
@@ -454,6 +502,11 @@ export default class Chartroom extends View {
   }
 
   pick(card, isOpening, cx) {
+    // The press that ends a drag of the chart is no click on the card it ends on.
+    if (this.didDrag) {
+      this.didDrag = false;
+      return;
+    }
     if (isOpening && card.isOpenable) return this.open(card, cx);
     if (this.selected !== card.id) this.light(cx);
     this.selected = card.id;
@@ -756,10 +809,22 @@ export default class Chartroom extends View {
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
     const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) });
     const body = isWide ? h_flex() : v_flex();
+    const isDragging = Boolean(this.drag && this.didDrag);
+    // The chart is a map to move around: dragged anywhere, a card too, or moved with the wheel.
     return body.flex_1().min_h(0).min_w(0)
-      .child(div().id("chart").flex_1().h_full().min_h(0).min_w(0).overflow_scrollbar()
+      .child(div().id("chart").flex_1().h_full().min_h(0).min_w(0).relative().overflow_hidden()
+        .when(Boolean(view.laid) && isDragging, (el) => el.cursor_grabbing())
+        .when(Boolean(view.laid) && !isDragging, (el) => el.cursor_grab())
+        .on_size_change((size, cx) => {
+          this.viewSize = size;
+          cx.notify();
+        })
         .on_scroll_wheel((e, cx) => this.wheel(e, cx))
-        .child(v_flex()
+        .on_mouse_down("left", (e) => this.pressed(e))
+        .on_mouse_move((e, cx) => this.dragged(e, cx))
+        .on_mouse_up("left", (_e, cx) => this.released(cx))
+        .on_hover((isHovered, cx) => !isHovered && this.released(cx))
+        .child(v_flex().absolute().left(-this.pan.x).top(-this.pan.y)
           .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
           .child(this.canvas(t, view))))
       .when(isWide, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
@@ -790,13 +855,18 @@ export default class Chartroom extends View {
       .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(13).line_height("19px").text_color(t.muted).child(part?.summary ?? this.chart.summary)));
   }
 
-  // ⌘ or ctrl with the wheel or a pinch zooms; the wheel alone scrolls.
+  // The wheel or two fingers move the chart every way; with ⌘ or ctrl they zoom around the pointer.
   wheel(e, cx) {
+    if (!this.memo?.laid) return;
     const m = e.modifiers ?? {};
-    if (!(m.platform || m.control) || !this.memo?.laid?.lines) return;
-    const delta = e.delta?.y ?? 0;
-    if (Math.abs(delta) < 0.5) return;
-    this.zoomTo(this.zoomNow() * Math.pow(1.0025, -delta), cx);
+    const dx = e.delta?.x ?? 0;
+    const dy = e.delta?.y ?? 0;
+    if ((m.platform || m.control) && this.memo.laid.lines) {
+      if (Math.abs(dy) >= 0.5) this.zoomTo(this.zoomNow() * Math.pow(1.0025, dy), cx, e.local_position ?? null);
+    } else {
+      this.panTo(this.pan.x - dx, this.pan.y - dy);
+      cx.notify();
+    }
     cx.stop_propagation();
   }
 
