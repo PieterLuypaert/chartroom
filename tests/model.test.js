@@ -73,6 +73,12 @@ describe("levelOf a part", () => {
     expect(ids(level.outside).sort()).toEqual(["n:api", "n:site.pages"]);
   });
 
+  test("finds a file through its endpoints as through its path", () => {
+    const level = levelOf(chart, "api.routes");
+    const into = level.lines.filter((line) => line.to === "f:api/src/routes/tides.ts").map((line) => line.from).sort();
+    expect(into).toEqual(["n:api", "n:jobs", "n:site"]);
+  });
+
   test("lists a file's endpoints on its card", () => {
     const level = levelOf(chart, "api.routes");
     const tides = level.inside.find((card) => card.id === "f:api/src/routes/tides.ts");
@@ -136,8 +142,18 @@ describe("cardIdOn", () => {
     expect(cardIdOn(chart, "api", "n:site.pages")).toBe("n:site");
   });
 
+  test("finds the file an endpoint is in, or the part around it", () => {
+    expect(cardIdOn(chart, "api.routes", "r:0")).toBe("f:api/src/routes/tides.ts");
+    expect(cardIdOn(chart, null, "r:0")).toBe("n:api");
+  });
+
   test("is nothing for what the chart does not have", () => {
     expect(cardIdOn(chart, null, "f:nowhere.ts")).toBeNull();
     expect(cardIdOn(chart, null, "n:gone")).toBeNull();
+    expect(cardIdOn(chart, null, "r:9")).toBeNull();
+  });
+
+  test("is nothing for the part the level shows", () => {
+    expect(cardIdOn(chart, "api", "n:api")).toBeNull();
   });
 });
