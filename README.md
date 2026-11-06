@@ -1,70 +1,64 @@
 # Chartroom
 
-A chart of a project's code in the [Herdr app](https://herdr.dev), in a panel beside the [Quarterdeck](https://github.com/PieterLuypaert/quarterdeck): its parts as cards, what uses what as lines between them, one level at a time, all in plain words.
+An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn by your own Claude.
 
-The panel draws the chart itself, with your own Claude: it reads the code, asks `claude` for the app's parts and a description of every file and endpoint, and shows the result as soon as it is there.
+The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
-## What it shows
+## Features
 
-- **The chart**: the parts of the app at the top, and inside any part its parts and files, laid out by [ELK](https://eclipse.dev/elk/) in three bands: what uses the part, what is inside it, and what it uses (outside services as slim pills). Lines run at right angles around the cards, each meeting a card at a port of its own. It reads left to right where there is room, top to bottom in the panel, and opens with what the level is and does. Picking or pointing at a card lights its route; on a busy level the other lines stay faint until then. Scroll to zoom around the pointer, as on a map, and drag the chart to move around it (or scroll with `⇧` or `⌘` held); `−` `+` zoom and `0` fits.
-- **Explained on request**: **Explain this with your Claude** at the top of a card's details (or `e`) has your own Claude explain it: what it does, how it works in a few steps, what it relies on, what to watch out for. The cards the explanation names light up. An explanation is kept until the chart changes, so picking the card again shows it at once, without asking again.
-- **Ask about it**: pick a card and ask your own Claude about it at the foot of the details ("What breaks if this goes?"), or about the level with no card picked. It reads the chart and, where it needs to, the code, with only the tools that read, in the background. The answer shows under the details, and a click on it lights the cards it is about on the chart. A project keeps its latest twenty answers.
-- **A card's details**: what it does, what it uses and what uses it (with the requests or imports in between), and for a file its endpoints.
-- **Any project**: the focused space's by default, or one picked from every space's project and folders chosen by hand, each marked with whether it has a chart yet.
-- **Full size, by default**: the **Chartroom** button in the tab bar (or `⌥⌘F`) opens the space's Chartroom in a tab of its own, on the space's project, or goes to it when it is open; from it, the same button goes back to the tab you came from. The side panel beside the terminals is `⌥⇧⌘F`, and its square (or `f`) goes to that tab, or opens it on the level the panel shows. As any pane, `⌘⇧↵` zooms it, and the window's full screen makes it the whole screen.
-- **Smooth**: a level fades in when you go inside a part or back up, a picked card's lines fade in, and the cards glide to their new places when the view is resized.
-- **Drawing and updating**: **Draw the chart** starts it in the background and shows each step as it goes; the header's pen brings it up to date, asking Claude only about the files that changed. It keeps running when the panel closes, and **Stop** ends it.
+- **Chart**: three bands per level (what uses a part, what is inside it, what it uses), laid out with [ELK](https://eclipse.dev/elk/), with lines at right angles.
+- **Explore**: double-click a card to go inside, scroll to zoom, drag to move around.
+- **Explain**: have Claude explain any card. Explanations are kept until the chart changes.
+- **Ask**: ask Claude a question about a card or level, and see the cards in its answer lit on the chart.
+- **Stay current**: the Chartroom notices when the code has moved on since the chart, and an update re-describes only the files that changed.
+- **Any project**: follow the focused space, or pick any project or folder.
 
-## How a chart is drawn
+## Requirements
 
-1. **Reading the code** (no Claude): the repos in the folder, every code file git knows, and what each imports, defines, answers and asks for. Imports are followed to the files they lead to (TypeScript paths and baseUrl, Python modules, Go modules, PHP's PSR-4), and each web request is matched to the endpoint that answers it, across repos too.
-2. **Finding the app's parts**: one `claude -p` call with only the tools that read, which names the parts, the outside services and the links the code cannot show.
-3. **Describing every file**: batches of files, several at once, on a faster model.
-4. **Drawing the chart**: `.chartroom/chart.json` in the project. The `.chartroom` folder keeps itself out of git, and nothing else in the project is touched.
-
-It runs on your Claude subscription, through the `claude` you are logged in with; nothing else leaves your machine. A first chart takes a few minutes for a small app and longer for a big one.
+- The Herdr app
+- [Bun](https://bun.sh), `git` and `jq`
+- The Claude Code CLI, logged in
 
 ## Install
 
-From a checkout, with the Herdr app opened once:
-
 ```sh
-./install.sh             # or ./install.sh <layout>
+git clone https://github.com/PieterLuypaert/chartroom.git
+cd chartroom
+./install.sh
 ```
 
-It installs ELK (`bun install`), links the mod into `~/.config/herdr-app/mods/`, binds `cmd-alt-f` (full size) and `cmd-alt-shift-f` (the side panel), moving a key it bound before but never one you bound yourself (binding keys makes `keys.json` yours: Herdr no longer adds its new default shortcuts to it on an upgrade), and adds the panel and a **Chartroom** button to the current layout, before the Quarterdeck's when that is there. Herdr resets its own layouts on start, so the script tells you how to clone one first. Run it again after a pull so the app loads the new mod.
+This installs the dependencies, links the mod into `~/.config/herdr-app/mods/`, binds its keys, and adds a **Chartroom** button to the tab bar of your current layout. Run it again after pulling.
 
-Needs Bun, and the Claude Code CLI logged in.
+## Usage
 
-## Keys
+Click **Chartroom** in the tab bar, or press `⌥⌘F`, to open it full size. `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
 
-| Key | In the chart | In the project list |
-|---|---|---|
-| `↑` / `↓` | pick the card before or after | move through the projects |
-| `enter` | go inside the card picked | chart that project |
-| `backspace` | up a level | |
-| `p` | the project list | back to the chart |
-| `u` | draw the chart, or bring it up to date | |
-| `s` | stop the drawing | |
-| `f` | the Chartroom full size, in a tab of its own | |
-| `−` / `+` / `0` | zoom out, in, or fit the width | |
-| `a` | ask your Claude about the card picked (esc leaves the field) | |
-| `e` | explain the card picked with your Claude | |
-| `d` | fold the details away, so the chart gets the whole width, or show them | |
-| `esc` | up a level, or close | back to the chart |
+| Key | Action |
+|---|---|
+| `↑` `↓` | Pick a card |
+| `↵` / `⌫` | Go inside / up a level |
+| `e` | Explain the card picked |
+| `a` | Ask a question |
+| `d` | Show or hide the details |
+| `−` `+` `0` | Zoom out, in, fit |
+| `u` | Update the chart |
+| `p` | Pick another project |
 
-The panel button at the trail's end folds the details away too; picking a card brings them back. A click picks a card, a double click goes inside it, and the trail under the header leads back up.
+## How it works
 
-## Develop
+1. **Scan**: the code is read without Claude. Imports are followed through TypeScript, Python, Go and PHP, and web requests are matched to the endpoints that answer them.
+2. **Parts**: one read-only `claude -p` call names the app's parts and the outside services it uses.
+3. **Describe**: files are described in parallel batches on a faster model.
+4. **Chart**: the result is written to `.chartroom/` in the project. That folder keeps itself out of git.
+
+Everything runs locally, on your own Claude subscription. Claude only gets tools that read: it never changes your code.
+
+## Development
 
 ```sh
-bun test
-herdr-app check mods/chartroom
-bun draw/draw.js <folder> [--update]     # draw a chart from the command line
+bun test                          # unit and end-to-end tests
+herdr-app check mods/chartroom    # load the mod once
+bun draw/draw.js <folder>         # draw a chart from the command line
 ```
 
-- `draw/`: the drawing, run with Bun. `scan.js` reads the code (`extract.js` per file, `resolve.js` for imports and requests); `parts.js` and `describe.js` ask Claude through `claude.js`; `build.js` writes the chart; `draw.js` runs the steps and reports its progress.
-- `draw/ask.js` answers a question about the chart with Claude, in the background, into `.chartroom/asks/`.
-- `draw/lay.js` lays levels out with ELK for the panel, which asks for the level shown and those one click away.
-- `mods/chartroom/`: the panel. `model.js` reads a chart into levels, `layout.js` turns ELK's places into what is drawn (and keeps a plain layout for when ELK cannot run), `find.js` is the shell that finds a chart and starts or stops a drawing; `main.js` is the panel and the tab bar's button, and `chart.js`, `projects.js` and `drawing.js` draw it.
-- Tests run the drawing end to end with a stand-in for `claude` (`tests/fake-claude.js`).
+`draw/` holds the drawing (scan, Claude calls, layout); `mods/chartroom/` holds the panel.
