@@ -116,14 +116,22 @@ export function goModuleOf(goModText, dir) {
 }
 
 // Every Python module by its dotted name, from the repo's top and from a src folder.
+// Every Python module by the dotted names it can be imported by. A project's code often runs from
+// a folder below the repo's top (backend/, src/), so a module is known by the end of its dotted
+// path too: two parts or more, and one alone only for a module at the top of a folder that is no
+// package (no __init__.py), as a script's own folder is. The first file to claim a name keeps it.
 function pythonIndex(files) {
   const modules = new Map();
+  const packages = new Set(files.filter((file) => file.path.endsWith("/__init__.py")).map((file) => dirOf(file.path)));
   for (const file of files) {
     if (file.lang !== "python") continue;
     const inRepo = file.repo ? file.path.slice(file.repo.length + 1) : file.path;
-    const dotted = inRepo.replace(/\.py$/, "").replace(/\/__init__$/, "").split("/").join(".");
-    for (const name of [dotted, dotted.startsWith("src.") ? dotted.slice(4) : null]) {
-      if (name && !modules.has(`${file.repo}|${name}`)) modules.set(`${file.repo}|${name}`, file.path);
+    const parts = inRepo.replace(/\.py$/, "").replace(/\/__init__$/, "").split("/");
+    const isTop = !packages.has(dirOf(file.path));
+    for (let start = 0; start < parts.length; start += 1) {
+      if (parts.length - start < 2 && !(isTop && start === parts.length - 1)) continue;
+      const key = `${file.repo}|${parts.slice(start).join(".")}`;
+      if (!modules.has(key)) modules.set(key, file.path);
     }
   }
   return modules;
@@ -158,13 +166,43 @@ function resolveGo(spec, goDirs, found) {
   return { files: [], pkg: packageOf(spec, "go") };
 }
 
+// JSON with comments and trailing commas made plain JSON. Comments are found outside strings only,
+// so "@/*" and "**/*.ts" stay as they are.
+export function withoutComments(text) {
+  let out = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') {
+      const end = endOfString(text, i);
+      out += text.slice(i, end);
+      i = end - 1;
+    } else if (char === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i += 1;
+      out += "\n";
+    } else if (char === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 1;
+    } else out += char;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
+// Where the string that starts at `start` (its opening quote) ends, just past its closing quote.
+function endOfString(text, start) {
+  for (let i = start + 1; i < text.length; i += 1) {
+    if (text[i] === "\\") i += 1;
+    else if (text[i] === '"') return i + 1;
+  }
+  return text.length;
+}
+
 // A tsconfig's paths as prefixes to try, each with the folders it stands for, for the files in
 // `dir` (the tsconfig's folder). JSON with comments and trailing commas is read as TypeScript
 // reads it.
 export function aliasesOf(tsconfigText, dir) {
   let config;
   try {
-    config = JSON.parse(tsconfigText.replace(/\/\*[\s\S]*?\*\/|(^|[^:"])\/\/.*$/gm, "$1").replace(/,(\s*[}\]])/g, "$1"));
+    config = JSON.parse(withoutComments(tsconfigText));
   } catch (error) {
     console.log(`chartroom: the tsconfig paths in ${dir || "the project's folder"} were left out: ${error.message}`);
     return [];
@@ -184,8 +222,10 @@ export function aliasesOf(tsconfigText, dir) {
 const segmentsOf = (path) => path.split("/").filter(Boolean).map((part) => (/^(:|\{|<|\[|\*)/.test(part) ? ":" : part.toLowerCase()));
 
 // The endpoint that answers a request: its path ends the way the request's does, a variable part
-// matching anything, and at least one fixed part the same. The longest such match wins. A request
-// that names only part of the address (its start lives in settings) still finds its endpoint.
+// matching anything, and at least one fixed part the same. The longest such match wins, one as long
+// as the request before one that is not. A request that names only part of the address (its start
+// lives in settings) still finds its endpoint. Two equal matches in different files are a guess,
+// so the request is left without one.
 export function endpointFor(request, routes) {
   const asked = segmentsOf(request.path);
   let best = null;
@@ -194,10 +234,13 @@ export function endpointFor(request, routes) {
     if (request.m !== "ANY" && route.m !== "ANY" && request.m !== route.m) continue;
     const answered = segmentsOf(route.p);
     if (!answered.length || answered.length > asked.length + 1) continue;
-    const score = suffixScore(asked, answered);
-    if (score > 0 && (!best || score > best.score)) best = { route, score };
+    const fixed = suffixScore(asked, answered);
+    if (!fixed) continue;
+    const score = fixed + (answered.length === asked.length ? 0.5 : 0);
+    if (!best || score > best.score) best = { route, score, isTied: false };
+    else if (score === best.score && route.file !== best.route.file) best.isTied = true;
   }
-  return best?.route ?? null;
+  return best && !best.isTied ? best.route : null;
 }
 
 // How many fixed parts the two share from their ends, or 0 when they part ways. The request may

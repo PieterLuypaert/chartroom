@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { extract, langOf, urlOf } from "../draw/extract.js";
-import { aliasesOf, endpointFor, packageOf, psr4Of, resolverFor } from "../draw/resolve.js";
+import { aliasesOf, endpointFor, packageOf, psr4Of, resolverFor, withoutComments } from "../draw/resolve.js";
+import { connect } from "../draw/scan.js";
 
 describe("extract", () => {
   test("reads a TypeScript file's imports, exports, routes and requests", () => {
@@ -17,7 +18,7 @@ describe("extract", () => {
     ].join("\n"));
     expect(found.lang).toBe("js");
     expect(found.doc).toBe("Orders: checkout and history.");
-    expect(found.imports).toEqual([{ spec: "stripe", names: ["Stripe"] }, { spec: "./pay", names: ["pay", "Receipt"] }, { spec: "./types", names: [] }, { spec: "../db", names: [] }]);
+    expect(found.imports).toEqual([{ spec: "stripe", names: ["Stripe"] }, { spec: "./pay", names: ["pay", "Receipt"] }, { spec: "./types", names: [] }, { spec: "../db", names: ["db"] }]);
     expect(found.defs).toEqual(["listOrders"]);
     expect(found.routes).toEqual([{ m: "POST", p: "/orders/:id/refund", line: 7 }]);
     expect(found.requests).toEqual([{ m: "PUT", host: null, path: "/stock/:p", line: 8 }, { m: "GET", host: "api.shippo.com", path: "/v1/labels", line: 9 }]);
@@ -68,6 +69,19 @@ describe("extract", () => {
     expect(found.routes.map((route) => `${route.m} ${route.p}`)).toEqual(["GET /tides/{port}", "POST /ports"]);
   });
 
+  test("reads Python's imports that run over lines, as Black writes them", () => {
+    const found = extract("app/main.py", "from app.core.config import (\n    settings,\n    Other as O,  # the other one\n)\nfrom .models import (User,\n Order)\n");
+    expect(found.imports).toEqual([{ spec: "app.core.config", names: ["settings", "Other"] }, { spec: ".models", names: ["User", "Order"] }]);
+  });
+
+  test("reads where routers are mounted, and a router's own prefix", () => {
+    expect(extract("api/app.ts", 'const orders = require("./orders");\napp.use("/api/orders", auth, orders);\napp.route("/v2", v2.app);\nfastify.register(users, { prefix: "/users" });').mounts)
+      .toEqual([{ prefix: "/api/orders", name: "orders" }, { prefix: "/v2", name: "v2" }, { prefix: "/users", name: "users" }]);
+    expect(extract("app/routes/orders.py", 'router = APIRouter(tags=["orders"], prefix="/orders")\n').prefix).toBe("/orders");
+    expect(extract("app/main.py", 'app.include_router(orders.router, prefix="/api")\napp.register_blueprint(shop.bp, url_prefix="/shop")\n').mounts)
+      .toEqual([{ prefix: "/api", name: "orders" }, { prefix: "/shop", name: "shop" }]);
+  });
+
   test("knows code from other files", () => {
     expect([langOf("a/b.tsx"), langOf("x.py"), langOf("run.sh"), langOf("README.md"), langOf("logo.png")]).toEqual(["js", "python", "shell", null, null]);
   });
@@ -76,6 +90,11 @@ describe("extract", () => {
     expect(urlOf("${base}/orders/${id}?full=1")).toEqual({ host: null, path: "/orders/:p" });
     expect(urlOf("https://api.stripe.com")).toEqual({ host: "api.stripe.com", path: "/" });
     expect(urlOf("${url}")).toBeNull();
+  });
+
+  test("keeps the path of an address whose host or port is a variable", () => {
+    expect(urlOf("http://${host}/orders")).toEqual({ host: null, path: "/orders" });
+    expect(urlOf("http://localhost:${PORT}/api/orders")).toEqual({ host: "localhost", path: "/api/orders" });
   });
 });
 
@@ -103,6 +122,24 @@ describe("resolve", () => {
     expect(resolve(page, "lib/client").files).toEqual(["web/src/lib/client.ts"]);
     expect(resolve(page, "react-dom/client")).toEqual({ files: [], pkg: "react-dom" });
     expect(resolve(page, "node:fs")).toEqual({ files: [], pkg: null });
+  });
+
+  test("reads a tsconfig with globs in its strings and comments around them, as Next.js writes it", () => {
+    const next = '{\n  // Next.js\n  "compilerOptions": { /* where */ "baseUrl": ".", "paths": { "@/*": ["./src/*"] } },\n  "include": ["**/*.ts", "**/*.tsx"],\n}';
+    expect(JSON.parse(withoutComments(next)).include).toEqual(["**/*.ts", "**/*.tsx"]);
+    expect(aliasesOf(next, "web")[0]).toEqual({ dir: "web", prefix: "@/", isExact: false, targets: ["web/src"] });
+  });
+
+  test("follows Python's imports rooted in a folder below the repo's top", () => {
+    const backend = [
+      { path: "backend/app/__init__.py", repo: "", lang: "python" },
+      { path: "backend/app/main.py", repo: "", lang: "python" },
+      { path: "backend/app/core/__init__.py", repo: "", lang: "python" },
+      { path: "backend/app/core/config.py", repo: "", lang: "python" },
+    ];
+    const resolveBackend = resolverFor(backend);
+    expect(resolveBackend(backend[1], "app.core.config", ["settings"]).files).toEqual(["backend/app/core/config.py"]);
+    expect(resolveBackend(backend[1], "config")).toEqual({ files: [], pkg: "config" });
   });
 
   test("follows Python's relative and absolute imports, a module named in from-import too", () => {
@@ -138,9 +175,34 @@ describe("endpointFor", () => {
     expect(ask("ANY", "/ports")).toBe("/ports");
   });
 
+  test("leaves a request two endpoints in different files answer as well unmatched", () => {
+    const twins = [{ file: "api/orders.ts", m: "POST", p: "/:id/refund" }, { file: "api/payments.ts", m: "POST", p: "/:id/refund" }];
+    expect(endpointFor({ file: "web/client.ts", m: "POST", path: "/api/orders/:p/refund" }, twins)).toBeNull();
+  });
+
   test("leaves a request with another method or no fixed part in common unmatched", () => {
     expect(ask("DELETE", "/api/orders")).toBeNull();
     expect(ask("GET", "/:p")).toBeNull();
     expect(ask("GET", "/tides")).toBeNull();
+  });
+});
+
+describe("connect", () => {
+  const file = (path, fields) => ({ path, repo: "", lang: "js", imports: [], routes: [], requests: [], mounts: [], prefix: "", defs: [], ...fields });
+  const files = [
+    file("api/app.ts", { imports: [{ spec: "./orders", names: ["orders"] }, { spec: "./payments", names: ["payments"] }], mounts: [{ prefix: "/api/orders", name: "orders" }, { prefix: "/api/payments", name: "payments" }] }),
+    file("api/orders.ts", { routes: [{ m: "POST", p: "/:id/refund", line: 3 }] }),
+    file("api/payments.ts", { routes: [{ m: "POST", p: "/:id/refund", line: 4 }] }),
+    file("web/client.ts", { requests: [{ m: "POST", host: null, path: "/api/orders/:p/refund", line: 1 }] }),
+  ];
+  const resolve = (from, spec) => ({ files: [`api/${spec.slice(2)}.ts`], pkg: null });
+  const connected = connect(files, resolve);
+
+  test("puts each router's routes under the path it is mounted at", () => {
+    expect(connected.routes.map((route) => `${route.m} ${route.p} ${route.file}`)).toEqual(["POST /api/orders/:id/refund api/orders.ts", "POST /api/payments/:id/refund api/payments.ts"]);
+  });
+
+  test("links a request to the endpoint under the right mount", () => {
+    expect(connected.links.filter((link) => link.k === "http")).toEqual([{ a: "web/client.ts", b: "api/orders.ts", k: "http", w: 1, labels: ["POST /api/orders/:id/refund"] }]);
   });
 });

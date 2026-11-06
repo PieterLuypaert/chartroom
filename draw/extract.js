@@ -1,6 +1,7 @@
 // What one file says about itself, read from its text with patterns rather than a parser: what it
 // imports, what it defines, the comment at its top, the endpoints it answers and the web requests
-// it makes. Patterns catch most of these, not all of them; Claude fills in what they miss.
+// it makes, and where its routes are mounted: a prefix for all of its own routes (`prefix`), and
+// the routers it mounts at a path (`mounts`, each the imported name of a router and its path). Patterns catch most of these, not all of them; Claude fills in what they miss.
 
 const JS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "vue", "svelte", "astro"];
 const LANGS = { python: ["py"], go: ["go"], rust: ["rs"], jvm: ["java", "kt", "kts", "scala", "groovy"], ruby: ["rb"], php: ["php"], csharp: ["cs"], swift: ["swift"], elixir: ["ex", "exs"], dart: ["dart"], shell: ["sh", "bash", "zsh"], sql: ["sql"] };
@@ -21,7 +22,7 @@ export function extract(path, text) {
   const lang = langOf(path);
   const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp }[lang];
   const found = by ? by(path, text) : { imports: [], defs: [], routes: [], requests: [] };
-  return { lang, doc: docOf(text), ...found };
+  return { lang, doc: docOf(text), prefix: "", mounts: [], ...found };
 }
 
 // The comment a file opens with, as one short line.
@@ -34,14 +35,16 @@ function docOf(text) {
 }
 
 // A URL as a path with its variable parts as :p, the host when it names one, or null when the
-// address is all variable.
+// address is all variable. A host or port that is a variable (http://${host}/orders,
+// http://localhost:${PORT}/api) still leaves the path to match.
 export function urlOf(raw) {
   let url = raw.replace(/\$\{[^}]*\}|\{[^}]*\}/g, ":p").replace(/[?#].*$/, "").trim();
   let host = null;
-  const absolute = /^https?:\/\/([^/:]+)(:\d+)?(.*)$/.exec(url);
+  const absolute = /^(?:https?:)?\/\/([^/]*)(.*)$/.exec(url);
   if (absolute) {
-    host = absolute[1] === ":p" ? null : absolute[1].toLowerCase();
-    url = absolute[3] || "/";
+    const name = absolute[1].split(":")[0].toLowerCase();
+    host = name || null;
+    url = absolute[2] || "/";
   }
   if (url.startsWith(":p/")) url = url.slice(2);
   if (!url.startsWith("/")) return host ? { host, path: "/" } : null;
@@ -53,9 +56,24 @@ function extractJs(path, text) {
   for (const m of all(/(?:^|[;\n])\s*import\s+(?:type\s+)?([\w*{}\s,$]+?)\s+from\s+['"]([^'"]+)['"]/g, text)) imports.push({ spec: m[2], names: importNames(m[1]) });
   for (const m of all(/(?:^|[;\n])\s*import\s+['"]([^'"]+)['"]/g, text)) imports.push({ spec: m[1], names: [] });
   for (const m of all(/(?:^|[;\n])\s*export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g, text)) imports.push({ spec: m[1], names: [] });
-  for (const m of all(/\b(?:require|import)\(\s*['"]([^'"]+)['"]\s*\)/g, text)) imports.push({ spec: m[1], names: [] });
+  const bound = new Set();
+  for (const m of all(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g, text)) {
+    imports.push({ spec: m[2], names: [m[1]] });
+    bound.add(m[2]);
+  }
+  for (const m of all(/\b(?:require|import)\(\s*['"]([^'"]+)['"]\s*\)/g, text)) if (!bound.has(m[1])) imports.push({ spec: m[1], names: [] });
   const defs = all(/(?:^|\n)\s*export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|const|let|var|interface|type|enum)\s+([\w$]+)/g, text).map((m) => m[1]);
-  return { imports, defs: [...new Set(defs)], routes: jsRoutes(path, text), requests: jsRequests(text) };
+  return { imports, defs: [...new Set(defs)], routes: jsRoutes(path, text), requests: jsRequests(text), mounts: jsMounts(text) };
+}
+
+// Routers mounted at a path: Express's app.use("/api", auth, router), Hono's app.route("/api", api),
+// Fastify's register(routes, { prefix: "/api" }). The router is the last plain name given.
+function jsMounts(text) {
+  const mounts = [];
+  const add = (prefix, name) => name && mounts.push({ prefix, name: name.split(".")[0] });
+  for (const m of all(/\.(?:use|route)\(\s*(['"`])(\/[^'"`]*)\1\s*,([^)]*)\)/g, text)) add(m[2], m[3].split(",").map((one) => one.trim()).filter((one) => /^[\w$.]+$/.test(one)).at(-1));
+  for (const m of all(/\.register\(\s*([\w$.]+)\s*,\s*\{[^}]*prefix\s*:\s*(['"`])(\/[^'"`]*)\2/g, text)) add(m[3], m[1]);
+  return mounts;
 }
 
 function importNames(clause) {
@@ -105,7 +123,11 @@ function jsRequests(text) {
 
 function extractPython(_path, text) {
   const imports = [];
-  for (const m of all(/^[ \t]*from\s+(\.*[\w.]*)\s+import\s+\(?([\w*, \t]+)/gm, text)) imports.push({ spec: m[1], names: m[2].split(",").map((name) => name.trim().split(/\s+as\s+/)[0]).filter(Boolean) });
+  // `from x import (a,\n b)` runs over lines, as Black and Ruff write long imports.
+  for (const m of all(/^[ \t]*from\s+(\.*[\w.]*)\s+import\s+(\([^)]*\)|[^\n]*)/gm, text)) {
+    const names = m[2].replace(/[()\\]/g, " ").replace(/#.*$/gm, "").split(/[,\n]/).map((name) => name.trim().split(/\s+as\s+/)[0]).filter((name) => /^[\w*]+$/.test(name));
+    imports.push({ spec: m[1], names });
+  }
   for (const m of all(/^[ \t]*import\s+([\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*)/gm, text)) {
     for (const part of m[1].split(",")) imports.push({ spec: part.trim().split(/\s+as\s+/)[0], names: [] });
   }
@@ -121,7 +143,10 @@ function extractPython(_path, text) {
     const url = urlOf(m[3]);
     if (url) requests.push({ m: m[1].toUpperCase(), ...url, line: lineAt(text, m.index) });
   }
-  return { imports, defs: [...new Set(defs)], routes, requests };
+  // A FastAPI router's or a Flask blueprint's own prefix, and the routers mounted elsewhere.
+  const prefix = /\b(?:APIRouter\([^)]*?\bprefix|Blueprint\([^)]*?\burl_prefix)\s*=\s*['"](\/[^'"]*)['"]/.exec(text)?.[1] ?? "";
+  const mounts = all(/\.(?:include_router|register_blueprint)\(\s*([\w.]+)[^)]*?\b(?:url_)?prefix\s*=\s*['"](\/[^'"]*)['"]/g, text).map((m) => ({ prefix: m[2], name: m[1].split(".")[0] }));
+  return { imports, defs: [...new Set(defs)], routes, requests, prefix, mounts };
 }
 
 // PHP: its `use` lines, its classes, and Symfony's #[Route] attributes or @Route annotations, a

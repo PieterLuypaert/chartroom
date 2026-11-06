@@ -6,8 +6,10 @@ import { basename, join, relative } from "node:path";
 import { extract, langOf } from "./extract.js";
 import { aliasesOf, endpointFor, goModuleOf, psr4Of, resolverFor } from "./resolve.js";
 
-// Folders whose files are built, installed or generated, not written.
-const SKIPPED = new Set(["node_modules", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", "coverage", "vendor", "__pycache__", ".venv", "venv", "target", ".chartroom", "floorplan", ".git"]);
+// Folders whose files are installed, built or charted, never written: left out even where git
+// keeps them. In a folder git does not know, the usual build and cache folders are left out too.
+const SKIPPED = new Set(["node_modules", "vendor", "dist", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".chartroom", "floorplan", ".git"]);
+const SKIPPED_WITHOUT_GIT = new Set(["build", "out", "target", "coverage", ".turbo", ".cache", ".venv", "venv"]);
 const MAX_FILE_BYTES = 400 * 1024;
 const MAX_FILES = 6000;
 const READ_AT_ONCE = 64;
@@ -18,7 +20,7 @@ async function git(dir, args) {
   return { ok: code === 0, out: out.trim(), err: err.trim() };
 }
 
-const isSkipped = (path) => path.split("/").some((part) => SKIPPED.has(part)) || /\.(min\.js|d\.ts|map)$/.test(path) || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path);
+const isSkipped = (path, isPlain) => path.split("/").some((part) => SKIPPED.has(part) || (isPlain && SKIPPED_WITHOUT_GIT.has(part))) || /\.(min\.js|d\.ts|map)$/.test(path) || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path);
 
 // The repos to read: the one the folder is in (only the part under the folder), else each repo in
 // a folder up to two levels down. A folder with neither is read as plain files.
@@ -50,7 +52,7 @@ async function pathsIn(repo) {
 async function walk(dir, prefix) {
   const out = [];
   for (const entry of await readdir(join(dir, prefix), { withFileTypes: true })) {
-    if (SKIPPED.has(entry.name) || entry.name.startsWith(".")) continue;
+    if (SKIPPED.has(entry.name) || SKIPPED_WITHOUT_GIT.has(entry.name) || entry.name.startsWith(".")) continue;
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) out.push(...(await walk(dir, path)));
     else out.push(path);
@@ -82,7 +84,7 @@ export async function scan(folder, { onFile = () => {} } = {}) {
   for (const repo of repos) {
     for (const path of await pathsIn(repo)) {
       const full = repo.path ? `${repo.path}/${path}` : path;
-      if (isSkipped(full)) continue;
+      if (isSkipped(full, repo.isPlain)) continue;
       if (/(^|\/)((tsconfig[\w.-]*|jsconfig|composer)\.json|go\.mod)$/.test(full)) configs.push(full);
       else if (langOf(full)) listed.push({ path: full, repo: repo.path });
     }
@@ -91,7 +93,11 @@ export async function scan(folder, { onFile = () => {} } = {}) {
   const isCut = listed.length > MAX_FILES;
   let read = 0;
   const files = (await inBatches(listed.slice(0, MAX_FILES), async (file) => {
-    const text = await readText(join(root, file.path));
+    // A file that cannot be read (gone since git listed it, or not ours to read) is left out alone.
+    const text = await readText(join(root, file.path)).catch((error) => {
+      console.log(`chartroom: ${file.path} was left out: ${error.message}`);
+      return null;
+    });
     onFile(++read, Math.min(listed.length, MAX_FILES));
     if (text === null) return null;
     return { ...file, ...extract(file.path, text), loc: text.split("\n").length, hash: Bun.hash(text).toString(16) };
@@ -125,6 +131,24 @@ async function repoFacts(repos) {
   }));
 }
 
+const joinUrl = (...parts) => `/${parts.join("/").split("/").filter(Boolean).join("/")}`;
+
+// Where each file's routes are mounted: the path a router is mounted at in the file that imports
+// it, after the path that file is mounted at itself, followed a few files deep.
+function prefixesOf(files, resolve) {
+  const mounted = [];
+  for (const file of files) {
+    for (const mount of file.mounts ?? []) {
+      const imported = file.imports.find((one) => one.names.includes(mount.name));
+      if (!imported) continue;
+      for (const to of resolve(file, imported.spec, imported.names).files) if (to !== file.path) mounted.push({ from: file.path, to, prefix: mount.prefix });
+    }
+  }
+  const prefixOf = new Map();
+  for (let depth = 0; depth < 5; depth += 1) for (const one of mounted) prefixOf.set(one.to, joinUrl(prefixOf.get(one.from) ?? "", one.prefix));
+  return prefixOf;
+}
+
 // The files with their imports resolved, the endpoints, and the links: one per pair of files and
 // kind, with how many imports or requests it stands for.
 export function connect(files, resolve) {
@@ -137,7 +161,8 @@ export function connect(files, resolve) {
     if (label && !one.labels.includes(label)) one.labels.push(label);
     links.set(key, one);
   };
-  const routes = files.flatMap((file) => file.routes.map((route) => ({ ...route, file: file.path })));
+  const prefixOf = prefixesOf(files, resolve);
+  const routes = files.flatMap((file) => file.routes.map((route) => ({ ...route, p: joinUrl(prefixOf.get(file.path) ?? "", file.prefix ?? "", route.p), file: file.path })));
   const out = files.map((file) => {
     const packages = new Set();
     for (const { spec, names } of file.imports) {
@@ -152,7 +177,7 @@ export function connect(files, resolve) {
       const route = request.host && !/^(localhost|127\.0\.0\.1)$/.test(request.host) ? null : endpointFor({ ...request, file: file.path }, routes);
       if (route) link(file.path, route.file, "http", `${route.m === "ANY" ? request.m : route.m} ${route.p}`);
     }
-    const { imports, requests, ...kept } = file;
+    const { imports, requests, mounts, prefix, ...kept } = file;
     return { ...kept, packages: [...packages], hosts: [...hosts], requestCount: requests.length };
   });
   return { files: out, routes, links: [...links.values()] };
