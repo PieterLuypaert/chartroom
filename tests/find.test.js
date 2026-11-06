@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksAt, asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -117,6 +117,13 @@ describe("asks", () => {
 
   test("asksFrom leaves out a line that is not an answer yet", () => {
     expect(asksFrom('{"id":"3"}\n{"id":\n\n')).toEqual([{ id: "3" }]);
+  });
+
+  test("asksAt keeps the answers asked on that level, a card's among them", () => {
+    const answers = [{ id: "4", focus: "api", card: "f:api/user.ts" }, { id: "3", focus: null }, { id: "2", focus: "ui" }, { id: "1" }];
+    expect(asksAt(answers, "api").map((one) => one.id)).toEqual(["4"]);
+    expect(asksAt(answers, null).map((one) => one.id)).toEqual(["3", "1"]);
+    expect(asksAt(answers, "db")).toEqual([]);
   });
 
   test("STOP_ASK leaves a pid that is no question alone", () => {
