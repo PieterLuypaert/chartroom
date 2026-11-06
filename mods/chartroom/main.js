@@ -59,8 +59,7 @@ const MAX_AHEAD = 12;
 // While open, how often the code is looked at for changes since the chart.
 const CHANGED_MS = 30000;
 // A card picked and kept picked this long is explained (each card once, until the chart changes).
-const EXPLAIN_DELAY = 900;
-const EXPLAIN_SETTING = "explain";
+
 // The details folded away (d), remembered.
 const FOLDED_SETTING = "detailsFolded";
 // While a question is being answered, its answer is looked for this often.
@@ -138,7 +137,7 @@ export default class Chartroom extends View {
     // the one shown on the chart, and the field to ask in.
     Object.assign(this, { asks: [], asksFolder: null, waitingFor: null, shownAnswer: null, isTyping: false });
     // Explaining a card picked: whether it is on (e), the picked card's explanation, and which ask is current.
-    Object.assign(this, { explainOn: stored(EXPLAIN_SETTING, true) !== false, explanation: null, explainCount: 0, explaining: null });
+    Object.assign(this, { explanation: null, explainCount: 0, explaining: null });
     this.detailsFolded = stored(FOLDED_SETTING, false) === true;
     this.question = InputState.new({ placeholder: "What does it do? What breaks if it goes?" });
     this.question.on("submit", (_e, cx) => this.ask(cx));
@@ -358,24 +357,21 @@ export default class Chartroom extends View {
     return new Set(refs.map((ref) => cardIdOn(this.chart, this.focus, ref)).filter((id) => id && id !== this.selected));
   }
 
-  // The card picked, explained once it has stayed picked a moment: from what was kept for it, or by
-  // the project's Claude in the background. An explanation already underway for another card
-  // finishes and is kept for when that card is picked again.
-  explainSoon(cx) {
+  // The card picked: its explanation shows at once when one was kept for it and the chart since,
+  // else an Explain button does (asked = false). Asked for (the button, or e), the project's Claude
+  // explains it in the background. An explanation underway for another card finishes and is kept.
+  explainSoon(cx, isAsked = false) {
     this.explanation = null;
     const card = this.selected;
-    if (!this.explainOn || !card || !this.chart || !this.folder || this.place?.on) return;
-    const count = ++this.explainCount;
-    cx.timer.after(EXPLAIN_DELAY, (cx) => {
-      if (count === this.explainCount && this.selected === card) this.explain(card, count, cx);
-    });
+    if (!card || !this.chart || !this.folder || this.place?.on) return;
+    this.explain(card, ++this.explainCount, cx, isAsked);
   }
 
-  explain(card, count, cx) {
+  explain(card, count, cx, isAsked) {
     const folder = this.folder;
     const key = explainKey(card);
     const stamp = this.chart?.meta?.generatedAt ?? null;
-    const again = (cx) => cx.timer.after(ASK_POLL_MS, (cx) => count === this.explainCount && this.explain(card, count, cx));
+    const again = (cx) => cx.timer.after(ASK_POLL_MS, (cx) => count === this.explainCount && this.explain(card, count, cx, false));
     cx.spawn(async (cx) => {
       try {
         const found = await exec("sh", ["-c", FIND_EXPLAIN, "explain", folder, key]);
@@ -385,6 +381,10 @@ export default class Chartroom extends View {
         if (isKept || (!record && this.explaining?.key === key)) {
           this.explanation = record ?? { card, status: "asking" };
           if (this.explanation.status === "asking") again(cx);
+          return;
+        }
+        if (!isAsked) {
+          this.explanation = { card, status: "none" };
           return;
         }
         this.explanation = { card, status: "asking" };
@@ -949,9 +949,7 @@ export default class Chartroom extends View {
     else if (view && k === "a" && this.folder && !this.place?.on) this.question.focus();
     else if (view && k === "d") this.foldDetails(!this.detailsFolded, cx);
     else if (view && k === "e") {
-      this.explainOn = !this.explainOn;
-      store(EXPLAIN_SETTING, this.explainOn);
-      this.explainSoon(cx);
+      if (this.explanation?.status !== "asking" && this.explanation?.status !== "done") this.explainSoon(cx, true);
     }
     else if (view?.laid && (k === "-" || k === "=" || k === "+")) this.zoomTo(this.zoomNow() * (k === "-" ? 1 / ZOOM_STEP : ZOOM_STEP), cx);
     else if (view?.laid && k === "0") this.zoomTo(null, cx);
@@ -1113,7 +1111,7 @@ export default class Chartroom extends View {
     const details = this.selected ? detailsOf(view.level, this.selected) : null;
     const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
-    const explain = { isOn: this.explainOn, record: this.explanation?.card === this.selected ? this.explanation : null };
+    const explain = { record: this.explanation?.card === this.selected ? this.explanation : null, onExplain: (cx) => this.explainSoon(cx, true) };
     const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain });
     const body = isWide ? h_flex() : v_flex();
     const isDragging = Boolean(this.drag && this.didDrag);
@@ -1223,7 +1221,7 @@ export default class Chartroom extends View {
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");
-    if (this.folder && !this.place?.on) keys.push("a ask", `e explain ${this.explainOn ? "on" : "off"}`);
+    if (this.folder && !this.place?.on) keys.push("a ask", "e explain");
     keys.push(`d details ${this.detailsFolded ? "off" : "on"}`);
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
     if (!isTab()) keys.push("f full size");
