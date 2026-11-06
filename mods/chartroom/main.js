@@ -68,6 +68,8 @@ const ASK_POLL_MS = 1500;
 // freely every way, as long as this much of it stays in view.
 const DRAG_STEP = 4;
 const KEEP_IN_VIEW = 120;
+// The wheel at rest this long ends a zoom with it; until then the cards follow it without gliding.
+const WHEEL_REST_MS = 160;
 // The heading's height over a wide view's chart, near enough to bound how far it is dragged.
 const HEADING_HEIGHT = 130;
 // A chart view lower than this is a laptop's: the heading is kept small.
@@ -150,7 +152,7 @@ export default class Chartroom extends View {
       cx.notify();
     });
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
-    Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null });
+    Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
     Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
@@ -530,6 +532,25 @@ export default class Chartroom extends View {
       this.panTo((this.pan.x + around.x) * scale - around.x, (this.pan.y + around.y) * scale - around.y);
     }
     this.moving(cx);
+    cx.notify();
+  }
+
+  // Zooming with the wheel follows every step at once, cards and lines together, frame by frame:
+  // no glide and no lines stepping aside, which a stream of steps would make stutter.
+  wheelZoom(next, around, cx) {
+    const before = this.zoomNow();
+    this.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+    if (around) {
+      const scale = this.zoom / before;
+      this.panTo((this.pan.x + around.x) * scale - around.x, (this.pan.y + around.y) * scale - around.y);
+    }
+    const count = ++this.wheelCount;
+    this.isWheeling = true;
+    cx.timer.after(WHEEL_REST_MS, (cx) => {
+      if (count !== this.wheelCount) return;
+      this.isWheeling = false;
+      cx.notify();
+    });
     cx.notify();
   }
 
@@ -1146,7 +1167,7 @@ export default class Chartroom extends View {
     const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
     return v_flex()
       .when(Boolean(view.note), (el) => el.child(div().px(16).pt(8).text_size(11.5).text_color(t.dim).child(view.note)))
-      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
+      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), isInstant: this.isWheeling, onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
   }
 
   // Over the chart in a wide view: what this level is, what it is called, and what it does.
@@ -1171,7 +1192,7 @@ export default class Chartroom extends View {
     const dx = e.delta?.x ?? 0;
     const dy = e.delta?.y ?? 0;
     if (!(m.shift || m.platform) && this.memo.laid.lines) {
-      if (Math.abs(dy) >= 0.5) this.zoomTo(this.zoomNow() * Math.pow(1.0025, dy), cx, e.local_position ?? null);
+      if (Math.abs(dy) >= 0.5) this.wheelZoom(this.zoomNow() * Math.pow(1.0025, dy), e.local_position ?? null, cx);
     } else {
       this.panTo(this.pan.x - dx, this.pan.y - dy);
       cx.notify();
