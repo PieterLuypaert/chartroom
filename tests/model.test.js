@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { detailsOf, levelOf, mapFolders, readChart, trailOf } from "../mods/chartroom/model.js";
+import { detailsOf, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -109,16 +109,21 @@ describe("detailsOf", () => {
   });
 });
 
-describe("mapFolders", () => {
-  test("goes up from the folder, short of home", () => {
-    expect(mapFolders("/Users/me/code/app/src/", "/Users/me")).toEqual(["/Users/me/code/app/src", "/Users/me/code/app", "/Users/me/code"]);
+describe("projectsOf", () => {
+  const spaces = [
+    { id: "s1", name: "tide-tables", folder: "/code/tide-tables", machine: null },
+    { id: "s2", name: "review", folder: "/code/tide-tables", machine: null },
+    { id: "s3", name: "tide-tables", folder: "/code/tide-tables", machine: "vps" },
+    { id: "s4", name: "~", folder: "", machine: null },
+  ];
+
+  test("lists each space's folder once per machine, and skips a space without one", () => {
+    expect(projectsOf(spaces, []).map((one) => [one.label, one.on, one.space])).toEqual([["tide-tables", null, "s1"], ["tide-tables", "vps", "s3"]]);
   });
 
-  test("stops at the top of the disk outside home", () => {
-    expect(mapFolders("/srv/app", "/Users/me")).toEqual(["/srv/app", "/srv"]);
-  });
-
-  test("is nothing without a folder", () => {
-    expect(mapFolders(null, "/Users/me")).toEqual([]);
+  test("adds the folders picked by hand after the spaces, named after the folder", () => {
+    const projects = projectsOf(spaces, ["/code/harbour", "/code/tide-tables"]);
+    expect(projects.map((one) => one.folder)).toEqual(["/code/tide-tables", "/code/tide-tables", "/code/harbour"]);
+    expect(projects.at(-1)).toEqual({ label: "harbour", folder: "/code/harbour", on: null, space: null, key: ":/code/harbour" });
   });
 });

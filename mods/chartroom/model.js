@@ -4,8 +4,6 @@
 
 export const SCHEMA = "floorplan/graph@1";
 
-// Folders above this many levels up are not searched for a map.
-const MAX_FOLDERS = 12;
 // Guards the walk up a part's parents against a map whose parents loop.
 const MAX_DEPTH = 64;
 
@@ -43,14 +41,19 @@ function indexChart(graph) {
   return { name, summary: graph.project?.summary ?? "", meta: graph.meta ?? {}, nodes, children, files, filesOf, routes, routesOf, links: graph.links ?? [] };
 }
 
-// The folders a map of `cwd` may be in, nearest first: it and each folder above it, short of home.
-export function mapFolders(cwd, home) {
+// The projects to pick a chart from: every space's folder, then the folders picked by hand, each
+// once. `key` tells them apart across machines.
+export function projectsOf(spaceList, pickedFolders) {
   const out = [];
-  let dir = cwd ? cwd.replace(/\/+$/, "") : "";
-  while (dir && dir !== home && out.length < MAX_FOLDERS) {
-    out.push(dir);
-    dir = dir.slice(0, dir.lastIndexOf("/"));
-  }
+  const keys = new Set();
+  const add = (project) => {
+    const key = `${project.on ?? ""}:${project.folder}`;
+    if (!project.folder || keys.has(key)) return;
+    keys.add(key);
+    out.push({ ...project, key });
+  };
+  for (const space of spaceList) add({ label: space.name, folder: space.folder, on: space.machine ?? null, space: space.id });
+  for (const folder of pickedFolders) add({ label: baseName(folder), folder, on: null, space: null });
   return out;
 }
 
