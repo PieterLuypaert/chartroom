@@ -52,9 +52,10 @@ Needs Bun, and the Claude Code CLI logged in.
 | `−` / `+` / `0` | zoom out, in, or fit the width | |
 | `a` | ask your Claude about the card picked (esc leaves the field) | |
 | `e` | explain a card when it is picked, or not | |
+| `d` | fold the details away, so the chart gets the whole width, or show them | |
 | `esc` | up a level, or close | back to the chart |
 
-A click picks a card, a double click goes inside it, and the trail under the header leads back up.
+The panel button at the trail's end folds the details away too; picking a card brings them back. A click picks a card, a double click goes inside it, and the trail under the header leads back up.
 
 ## Develop
 
