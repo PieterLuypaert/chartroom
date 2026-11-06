@@ -50,7 +50,9 @@ add_key() {
   if [ "$bound" = "$action" ]; then echo "key: $key already opens the Chartroom"; return; fi
   if [ -n "$bound" ]; then echo "key: $key does $bound; bind $action to a free key in $keys yourself" >&2; return; fi
   cp "$keys" "$keys.backup-$stamp"
-  jq --arg k "$key" --arg a "$action" '.global[$k] = $a' "$keys.backup-$stamp" >"$keys"
+  # Written beside it first, so a failing jq leaves keys.json as it was.
+  jq --arg k "$key" --arg a "$action" '.global[$k] = $a' "$keys.backup-$stamp" >"$keys.tmp" || { rm -f "$keys.tmp"; fail "could not add $key to $keys"; }
+  mv "$keys.tmp" "$keys"
   echo "key: $key opens the Chartroom (keys.json was kept as keys.json.backup-$stamp)"
 }
 

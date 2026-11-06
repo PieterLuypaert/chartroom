@@ -30,7 +30,7 @@ From a checkout, with the Herdr app opened once:
 ./install.sh             # or ./install.sh <layout>
 ```
 
-It links the mod into `~/.config/herdr-app/mods/`, binds `cmd-alt-f`, and adds the panel and a **Chartroom** button to the current layout, before the Quarterdeck's when that is there. Herdr resets its own layouts on start, so the script tells you how to clone one first. Run it again after a pull so the app loads the new mod.
+It links the mod into `~/.config/herdr-app/mods/`, binds `cmd-alt-f` (which makes `keys.json` yours: Herdr no longer adds its new default shortcuts to it on an upgrade), and adds the panel and a **Chartroom** button to the current layout, before the Quarterdeck's when that is there. Herdr resets its own layouts on start, so the script tells you how to clone one first. Run it again after a pull so the app loads the new mod.
 
 Needs Bun, and the Claude Code CLI logged in.
 
