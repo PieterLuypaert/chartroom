@@ -3,7 +3,7 @@
 // space's, or one picked from every space's project and folders chosen by hand. The panel draws
 // the chart itself: it starts draw/draw.js in the background, which reads the code and asks the
 // person's own Claude for the app's parts and a description of every file, and shows how far it
-// is until the chart is there. A map floorplan made shows too. With props {button: true} it is the
+// is until the chart is there. With props {button: true} it is the
 // tab bar's button, which opens the space's Chartroom full size, in a tab of its own (as ⌥⌘F does,
 // through the command chartroom.full), and from that tab goes back; with props {tab: true, project,
 // focus, selected} it is that tab. The panel beside the terminals stays a key away (⌥⇧⌘F).
@@ -455,7 +455,7 @@ export default class Chartroom extends View {
     const folder = this.folder;
     const repos = (chart?.meta?.repos ?? []).filter((repo) => repo.head);
     if (!chart || !folder || this.isDrawing || !repos.length) return;
-    const file = `${folder}/${this.kind === "floorplan" ? "floorplan/graph.json" : ".chartroom/chart.json"}`;
+    const file = `${folder}/.chartroom/chart.json`;
     cx.spawn(async (cx) => {
       try {
         const result = await exec("sh", ["-c", CHANGED, "changed", folder, file, ...repos.flatMap((repo) => [repo.path ?? "", repo.head])], { on: this.place?.on });
@@ -603,9 +603,9 @@ export default class Chartroom extends View {
   }
 
   // Reads again when the chart or the drawing's progress changes: in .chartroom while the panel's
-  // own chart is drawn or shown, in floorplan/ for floorplan's. Another machine's is read on the timer.
+  // own chart is drawn or shown. Another machine's is read on the timer.
   watch(place, cx) {
-    const dir = `${this.folder}/${this.kind === "floorplan" && !this.isDrawing ? "floorplan" : ".chartroom"}`;
+    const dir = `${this.folder}/.chartroom`;
     if (place.on || this.watched === dir) return;
     this.watched = dir;
     const count = ++this.watchCount;

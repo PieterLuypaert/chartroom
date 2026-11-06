@@ -1,9 +1,8 @@
 // What the Chartroom shows, read from a project's chart (.chartroom/chart.json, which draw/ makes
-// with the person's own Claude) or from the map floorplan writes (floorplan/graph.json), which has
-// the same shape: an app's parts one level at a time, each part, file or outside service a card,
+// with the person's own Claude): an app's parts one level at a time, each part, file or outside service a card,
 // and the links between them. Plain functions over plain data, so bun tests them without the app.
 
-export const SCHEMAS = ["chartroom/chart@1", "floorplan/graph@1"];
+export const SCHEMAS = ["chartroom/chart@1"];
 
 // Guards the walk up a part's parents against a map whose parents loop.
 const MAX_DEPTH = 64;

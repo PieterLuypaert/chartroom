@@ -15,8 +15,6 @@ The panel draws the chart itself, with your own Claude: it reads the code, asks 
 - **Smooth**: a level fades in when you go inside a part or back up, a picked card's lines fade in, and the cards glide to their new places when the view is resized.
 - **Drawing and updating**: **Draw the chart** starts it in the background and shows each step as it goes; the header's pen brings it up to date, asking Claude only about the files that changed. It keeps running when the panel closes, and **Stop** ends it.
 
-A project that has a map made by [floorplan](https://github.com/haydenschmitty/floorplan) shows that map until the Chartroom draws its own.
-
 ## How a chart is drawn
 
 1. **Reading the code** (no Claude): the repos in the folder, every code file git knows, and what each imports, defines, answers and asks for. Imports are followed to the files they lead to (TypeScript paths and baseUrl, Python modules, Go modules, PHP's PSR-4), and each web request is matched to the endpoint that answers it, across repos too.

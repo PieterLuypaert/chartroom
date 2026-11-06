@@ -27,13 +27,12 @@ afterAll(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const floorplanned = project("tide-tables", { "floorplan/graph.json": '{"schema":"floorplan/graph@1"}' });
+const mapped = project("tide-tables", { ".chartroom/chart.json": '{"schema":"chartroom/chart@1"}' });
 const drawing = project("harbour", {
   ".chartroom/chart.json": '{"schema":"chartroom/chart@1"}',
   ".chartroom/progress.json": '{\n"step": "describe",\n"done": 3\n}',
   ".chartroom/pid": String(drawer.pid),
-  ".chartroom/draw.log": "scanning\n",
-  "floorplan/graph.json": '{"schema":"floorplan/graph@1"}',
+  ".chartroom/draw.log": "scanning\n"
 });
 const failed = project("lighthouse", { ".chartroom/progress.json": '{"step":"failed","error":"no claude"}', ".chartroom/draw.log": "line one\nNot logged in\n" });
 // A pid that runs, but is no drawing: this test's own.
@@ -42,7 +41,7 @@ const bare = project("dock", {});
 // A drawing that failed in a folder of projects: the projects below it are not its.
 write(join(home, "code", ".chartroom", "progress.json"), '{"step":"failed"}');
 // A map in home itself is no project's.
-write(join(home, "floorplan", "graph.json"), '{"schema":"floorplan/graph@1"}');
+write(join(home, ".chartroom", "chart.json"), '{"schema":"chartroom/chart@1"}');
 
 const sh = (script, ...args) => {
   const run = Bun.spawnSync(["sh", "-c", script, "find", ...args], { env: { HOME: home, PATH: process.env.PATH } });
@@ -51,11 +50,11 @@ const sh = (script, ...args) => {
 const found = (folder) => mapFrom(sh(FIND_MAP, folder).stdout);
 
 describe("FIND_MAP", () => {
-  test("finds floorplan's map from a folder deep inside the project, with no drawing", () => {
-    expect(found(join(floorplanned, "src", "deep"))).toEqual({ folder: floorplanned, isDrawing: false, progress: null, log: "", kind: "floorplan", text: '{"schema":"floorplan/graph@1"}' });
+  test("finds the chart from a folder deep inside the project, with no drawing", () => {
+    expect(found(join(mapped, "src", "deep"))).toEqual({ folder: mapped, isDrawing: false, progress: null, log: "", kind: "chartroom", text: '{"schema":"chartroom/chart@1"}' });
   });
 
-  test("prefers the Chartroom's own chart, and tells a running drawing and how far it is", () => {
+  test("tells a running drawing and how far it is", () => {
     expect(found(drawing)).toMatchObject({ folder: drawing, isDrawing: true, progress: { step: "describe", done: 3 }, log: "", kind: "chartroom", text: '{"schema":"chartroom/chart@1"}' });
   });
 
@@ -74,8 +73,8 @@ describe("FIND_MAP", () => {
 
 describe("FIND_CHARTS", () => {
   test("says for each folder where its chart is, if anywhere", () => {
-    const charted = chartedFrom(sh(FIND_CHARTS, join(floorplanned, "src"), drawing, failed, bare).stdout);
-    expect([...charted]).toEqual([[join(floorplanned, "src"), floorplanned], [drawing, drawing], [failed, null], [bare, null]]);
+    const charted = chartedFrom(sh(FIND_CHARTS, join(mapped, "src"), drawing, failed, bare).stdout);
+    expect([...charted]).toEqual([[join(mapped, "src"), mapped], [drawing, drawing], [failed, null], [bare, null]]);
   });
 });
 
@@ -93,7 +92,7 @@ describe("START_DRAW and STOP_DRAW", () => {
 
   test("say why a drawing does not start", () => {
     expect(sh(START_DRAW, home, recorder, "")).toMatchObject({ code: 4, stderr: "the home folder is not a project: pick one\n" });
-    expect(sh(START_DRAW, floorplanned, join(home, "gone.js"), "")).toMatchObject({ code: 4, stderr: `there is no ${join(home, "gone.js")}: run install.sh again\n` });
+    expect(sh(START_DRAW, mapped, join(home, "gone.js"), "")).toMatchObject({ code: 4, stderr: `there is no ${join(home, "gone.js")}: run install.sh again\n` });
   });
 
   test("STOP_DRAW leaves a pid that is no drawing alone", () => {
