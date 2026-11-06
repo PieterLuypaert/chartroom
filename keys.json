@@ -1,0 +1,5 @@
+{
+  "global": {
+    "cmd-alt-f": "layout.toggle:chartroom"
+  }
+}
