@@ -11,7 +11,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
 import { detailsOf, levelOf, projectsOf, readChart } from "./model.js";
-import { layOut } from "./layout.js";
+import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView } from "./chart.js";
 import { chartedFrom, FIND_CHARTS, FIND_MAP, mapFrom, START_DRAW, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
@@ -44,6 +44,18 @@ const DETAILS_WIDTH = 340;
 // the lines stay aside while the cards glide to new places (chart.js's GLIDE, and a little more).
 const ENTER_MS = 30;
 const MOVE_MS = 260;
+// Zoom: at most this far out and in, this much a step; fitting the width never goes past 100%, nor
+// below what still reads (the chart scrolls sideways then).
+const MIN_ZOOM = 0.6;
+const MIN_FIT = 0.75;
+// From this wide a chart reads left to right, as three bands side by side; narrower, top to bottom.
+const ACROSS = 860;
+const MAX_ZOOM = 1.6;
+const ZOOM_STEP = 1.2;
+// draw/lay.js gets its levels as an argument, which the system keeps under a megabyte: a level
+// bigger than this is laid out plainly. Levels one click away are laid out ahead, this many at once.
+const MAX_LAY_ARG = 400 * 1024;
+const MAX_AHEAD = 12;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -103,6 +115,8 @@ export default class Chartroom extends View {
     this.views = new Map();
     this.size = { width: 460, height: 600 };
     this.hasSize = false;
+    // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
+    Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
     Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
@@ -205,12 +219,15 @@ export default class Chartroom extends View {
     }
     this.text = text;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
+    this.chartVersion += 1;
+    this.layouts = new Map();
     this.enter(cx);
   }
 
   // A new level fades in: drawn see-through once, then brought up natively (chart.js).
   enter(cx) {
     const count = ++this.levelCount;
+    this.zoom = null;
     this.isEntering = true;
     cx.timer.after(ENTER_MS, (cx) => {
       if (this.levelCount !== count) return;
@@ -235,15 +252,37 @@ export default class Chartroom extends View {
     const isChange = this.hasSize && Math.round(size.width) !== Math.round(this.size.width);
     this.size = size;
     this.hasSize = true;
-    if (isChange && this.chart) {
-      const count = ++this.moveCount;
-      this.isMoving = true;
-      cx.timer.after(MOVE_MS, (cx) => {
-        if (this.moveCount !== count) return;
-        this.isMoving = false;
-        cx.notify();
-      });
-    }
+    if (isChange && this.chart) this.moving(cx);
+    cx.notify();
+  }
+
+  // The cards glide to new places; the lines step aside until they are there.
+  moving(cx) {
+    const count = ++this.moveCount;
+    this.isMoving = true;
+    cx.timer.after(MOVE_MS, (cx) => {
+      if (this.moveCount !== count) return;
+      this.isMoving = false;
+      cx.notify();
+    });
+  }
+
+  // Zoom to `next` (null: fit the width), the cards gliding there.
+  zoomTo(next, cx) {
+    this.zoom = next === null ? null : Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+    this.moving(cx);
+    cx.notify();
+  }
+
+  zoomNow() {
+    return this.memo?.laid?.zoom ?? 1;
+  }
+
+  // A card under the pointer lights its lines.
+  hover(id, isHovered, cx) {
+    const next = isHovered ? id : this.hovered === id ? null : this.hovered;
+    if (next === this.hovered) return;
+    this.hovered = next;
     cx.notify();
   }
 
@@ -271,14 +310,15 @@ export default class Chartroom extends View {
     });
   }
 
-  // The checkout this mod is linked from (install.sh links it), whose draw/ draws the charts.
-  async drawScript() {
-    if (this.script) return this.script;
-    const result = await exec("sh", ["-c", 'cd "$1" && pwd -P', "where", `${appHome()}/mods/${MOD}`]);
-    const folder = result.stdout.trim();
-    if (result.code !== 0 || !folder.endsWith("/mods/chartroom")) throw new Error("the Chartroom draws charts from its checkout: link the mod with install.sh");
-    this.script = `${folder.slice(0, -"/mods/chartroom".length)}/draw/draw.js`;
-    return this.script;
+  // A script in the draw/ of the checkout this mod is linked from (install.sh links it).
+  async script(name) {
+    if (!this.checkout) {
+      const result = await exec("sh", ["-c", 'cd "$1" && pwd -P', "where", `${appHome()}/mods/${MOD}`]);
+      const folder = result.stdout.trim();
+      if (result.code !== 0 || !folder.endsWith("/mods/chartroom")) throw new Error("the Chartroom draws and lays out charts from its checkout: link the mod with install.sh");
+      this.checkout = folder.slice(0, -"/mods/chartroom".length);
+    }
+    return `${this.checkout}/draw/${name}`;
   }
 
   // Draws the project's chart in the background, or brings the Chartroom's own chart up to date.
@@ -294,7 +334,7 @@ export default class Chartroom extends View {
     this.isStarting = true;
     cx.spawn(async (cx) => {
       try {
-        const script = await this.drawScript();
+        const script = await this.script("draw.js");
         let folder = this.kind === "none" && !this.folder ? null : this.folder;
         if (!folder) {
           const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: place.cwd });
@@ -326,14 +366,79 @@ export default class Chartroom extends View {
     });
   }
 
-  // The level shown and where its cards go, worked out again only when one of those changes.
-  view() {
+  // The level shown and where its cards go: ELK's layout once draw/lay.js has sent it (asked for
+  // here when it has not), the plain layout when ELK could not lay the level out. Worked out again
+  // only when the level, its layout, the width or the zoom changes. Until ELK answers, `laid` is
+  // null and the level shows when it is there.
+  view(cx) {
+    const direction = this.direction();
     const width = this.chartWidth();
+    const level = this.memo?.chart === this.chart && this.memo.focus === this.focus ? this.memo.level : levelOf(this.chart, this.focus);
+    const key = this.levelKey(this.focus, direction);
+    const elk = this.layouts.get(key);
+    if (!elk && cx) this.lay([{ key, level, direction }], cx);
     const memo = this.memo;
-    if (memo?.chart === this.chart && memo.focus === this.focus && memo.width === width) return memo;
-    const level = levelOf(this.chart, this.focus);
-    this.memo = { chart: this.chart, focus: this.focus, width, level, laid: layOut(level, width) };
+    if (memo?.level === level && memo.elk === elk && memo.width === width && memo.zoom === this.zoom) return memo;
+    let laid = null;
+    let note = "";
+    if (elk && !elk.error) {
+      const fit = Math.min(1, Math.max(MIN_FIT, width / elk.width));
+      laid = fromElk(level, { ...elk, direction }, { zoom: this.zoom ?? fit, viewWidth: width, insideLabel: level.focus === null ? "Parts" : "Inside" });
+    } else if (elk?.error) {
+      laid = layOut(level, width);
+      note = `Laid out plainly: ${elk.error}`;
+    }
+    this.memo = { chart: this.chart, focus: this.focus, level, elk, width, zoom: this.zoom, laid, note };
     return this.memo;
+  }
+
+  // Left to right where the chart has room for three bands side by side, top to bottom elsewhere.
+  direction() {
+    return this.chartWidth() >= ACROSS ? "RIGHT" : "DOWN";
+  }
+
+  levelKey(focus, direction) {
+    return `${this.chartVersion}:${focus ?? ""}:${direction}`;
+  }
+
+  // Asks draw/lay.js for these levels' layouts, those not had or asked for yet, all in one go.
+  lay(levels, cx) {
+    const wanted = levels.filter((one) => !this.layouts.has(one.key) && !this.laying.has(one.key));
+    if (!wanted.length) return;
+    for (const one of wanted) this.laying.add(one.key);
+    const version = this.chartVersion;
+    cx.spawn(async (cx) => {
+      try {
+        const payload = JSON.stringify({ levels: wanted.map((one) => elkLevel(one.key, one.level, one.direction)) });
+        if (payload.length > MAX_LAY_ARG) throw new Error("this level is too big for ELK");
+        const result = await exec("bun", [await this.script("lay.js"), payload]);
+        if (result.code !== 0) throw new Error(result.stderr.trim() || `bun ended with ${result.code}`);
+        const { layouts } = JSON.parse(result.stdout);
+        if (version !== this.chartVersion) return;
+        for (const one of wanted) this.layouts.set(one.key, layouts[one.key] ?? { error: "ELK sent no layout for it" });
+        if (wanted.some((one) => one.key === this.levelKey(this.focus, this.direction()))) {
+          this.enter(cx);
+          this.layAhead(cx);
+        }
+      } catch (error) {
+        if (version === this.chartVersion) for (const one of wanted) this.layouts.set(one.key, { error: error.message ?? String(error) });
+      } finally {
+        for (const one of wanted) this.laying.delete(one.key);
+        cx.notify();
+      }
+    });
+  }
+
+  // The levels one click away (the parts on this level, and the level above), laid out ahead so
+  // going there shows them at once.
+  layAhead(cx) {
+    const level = this.memo?.level;
+    if (!level) return;
+    const direction = this.direction();
+    const parts = [...level.inside, ...level.outside].filter((card) => card.isOpenable).map((card) => card.part);
+    if (level.focus !== null) parts.push(this.chart.nodes.get(level.focus)?.parent ?? null);
+    const levels = [...new Set(parts)].slice(0, MAX_AHEAD).map((part) => ({ key: this.levelKey(part, direction), level: levelOf(this.chart, part), direction }));
+    this.lay(levels.filter((one) => JSON.stringify(elkLevel(one.key, one.level, direction)).length < MAX_LAY_ARG / 4), cx);
   }
 
   isWide() {
@@ -387,7 +492,7 @@ export default class Chartroom extends View {
   }
 
   step(view, by) {
-    const cards = view.laid.cards;
+    const cards = view.laid?.cards ?? [];
     if (!cards.length) return;
     const at = cards.findIndex((card) => card.id === this.selected);
     const next = at < 0 ? (by > 0 ? 0 : cards.length - 1) : Math.min(cards.length - 1, Math.max(0, at + by));
@@ -504,7 +609,7 @@ export default class Chartroom extends View {
   }
 
   chartKey(k, cx) {
-    const view = this.chart ? this.view() : null;
+    const view = this.chart ? this.view(cx) : null;
     if (view && (k === "down" || k === "right" || k === "up" || k === "left")) {
       this.step(view, k === "down" || k === "right" ? 1 : -1);
       this.light(cx);
@@ -520,6 +625,8 @@ export default class Chartroom extends View {
     else if (k === "f" && !isTab()) this.openFullSize();
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
+    else if (view?.laid && (k === "-" || k === "=" || k === "+")) this.zoomTo(this.zoomNow() * (k === "-" ? 1 / ZOOM_STEP : ZOOM_STEP), cx);
+    else if (view?.laid && k === "0") this.zoomTo(null, cx);
     else return false;
     return true;
   }
@@ -539,7 +646,7 @@ export default class Chartroom extends View {
     if (props()?.button) return this.button(t);
     this.watchShown(cx);
     if (isOpen() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
-    const view = this.chart && !this.isPicking ? this.view() : null;
+    const view = this.chart && !this.isPicking ? this.view(cx) : null;
     const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress, this.log) : "";
     const error = this.isPicking ? "" : this.error || failed;
     return v_flex().id("chartroom").track_focus(this.handle).size_full().min_h(0).bg(t.chrome).text_size(13).text_color(t.foreground)
@@ -637,7 +744,8 @@ export default class Chartroom extends View {
     });
     return h_flex().h(34).flex_none().min_w(0).px(10).gap(4).items_center().border_b(1).border_color(t.border).text_size(12)
       .when(level.focus !== null, (el) => el.child(this.iconButton(t, "up", svg(`${ICONS}/chevron-left.svg`).size(14), "Up a level (⌫)", (_e, cx) => this.up(cx))))
-      .children(crumbs);
+      .children(crumbs)
+      .when(Boolean(this.memo?.laid?.lines), (el) => el.child(this.zoomControls(t)));
   }
 
   // The chart, and the details under it, or beside it in a wide view. Nothing is drawn before the
@@ -646,16 +754,60 @@ export default class Chartroom extends View {
     const details = this.selected ? detailsOf(view.level, this.selected) : null;
     const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
-    const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
-    const chart = !this.hasSize ? div()
-      : view.laid.cards.length ? chartView({ t, laid: view.laid, selected: this.selected, onPick, ...motion })
-        : div().px(16).py(12).text_size(12).text_color(t.dim).child("Nothing on this level.");
     const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) });
     const body = isWide ? h_flex() : v_flex();
     return body.flex_1().min_h(0).min_w(0)
-      .child(div().id("chart").flex_1().min_h(0).min_w(0).overflow_y_scrollbar().child(chart))
+      .child(div().id("chart").flex_1().h_full().min_h(0).min_w(0).overflow_scrollbar()
+        .on_scroll_wheel((e, cx) => this.wheel(e, cx))
+        .child(v_flex()
+          .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
+          .child(this.canvas(t, view))))
       .when(isWide, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
       .when(!isWide, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
+  }
+
+  // The level's cards and lines, or while ELK lays it out a word that it does, or the plain layout
+  // with why ELK could not.
+  canvas(t, view) {
+    if (!this.hasSize) return div();
+    if (!view.laid) return h_flex().px(16).py(14).gap(8).items_center().text_size(12).text_color(t.dim)
+      .child(svg(`${ICONS}/spinner.svg`).size(12).text_color(t.muted).spin(900)).child("Laying the chart out…");
+    if (!view.laid.cards.length) return div().px(16).py(12).text_size(12).text_color(t.dim).child("Nothing on this level.");
+    const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
+    return v_flex()
+      .when(Boolean(view.note), (el) => el.child(div().px(16).pt(8).text_size(11.5).text_color(t.dim).child(view.note)))
+      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
+  }
+
+  // Over the chart in a wide view: what this level is, what it is called, and what it does.
+  heading(t, level) {
+    const part = level.focus === null ? null : this.chart.nodes.get(level.focus);
+    const cards = level.inside.length + level.outside.length;
+    const kind = part ? `${part.kind === "external" ? "outside service" : part.kind ?? "part"} · ${cards} cards` : `the whole app · ${cards} cards`;
+    return v_flex().w(Math.min(760, this.chartWidth() - 24)).px(20).pt(18).pb(4).gap(4)
+      .child(div().text_size(12).text_color(t.dim).child(kind))
+      .child(div().text_size(24).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
+      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(13).line_height("19px").text_color(t.muted).child(part?.summary ?? this.chart.summary)));
+  }
+
+  // ⌘ or ctrl with the wheel or a pinch zooms; the wheel alone scrolls.
+  wheel(e, cx) {
+    const m = e.modifiers ?? {};
+    if (!(m.platform || m.control) || !this.memo?.laid?.lines) return;
+    const delta = e.delta?.y ?? 0;
+    if (Math.abs(delta) < 0.5) return;
+    this.zoomTo(this.zoomNow() * Math.pow(1.0025, -delta), cx);
+    cx.stop_propagation();
+  }
+
+  // At the trail's end: out, the zoom with fit on a click, in.
+  zoomControls(t) {
+    const button = (id, child, tip, action) => div().id(id).h(22).min_w(22).px(5).flex().items_center().justify_center().rounded(5).text_size(12).text_color(t.muted)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().tooltip(tip).on_click(action).child(child);
+    return h_flex().flex_none().gap(1).items_center()
+      .child(button("zoom-out", "−", "Zoom out (−)", (_e, cx) => this.zoomTo(this.zoomNow() / ZOOM_STEP, cx)))
+      .child(button("zoom-fit", `${Math.round(this.zoomNow() * 100)}%`, "Fit the width (0)", (_e, cx) => this.zoomTo(null, cx)))
+      .child(button("zoom-in", "+", "Zoom in (+)", (_e, cx) => this.zoomTo(this.zoomNow() * ZOOM_STEP, cx)));
   }
 
   // No chart to show: no folder, still looking, or a project not charted yet, with how its last
@@ -690,6 +842,7 @@ export default class Chartroom extends View {
     const keys = ["↑↓ pick"];
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
+    if (view.laid?.lines) keys.push("−+ zoom");
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
     if (!isTab()) keys.push("f full size");
     return [...keys, ...close].join("  ·  ");

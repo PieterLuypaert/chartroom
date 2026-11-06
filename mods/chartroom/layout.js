@@ -179,3 +179,66 @@ function arrowAt(tip, from) {
   const back = [tip[0] - ux * SIZES.arrowLength, tip[1] - uy * SIZES.arrowLength];
   return [tip, [back[0] - uy * SIZES.arrowWidth, back[1] + ux * SIZES.arrowWidth], [back[0] + uy * SIZES.arrowWidth, back[1] - ux * SIZES.arrowWidth]];
 }
+
+// ---- ELK's layout (draw/lay.js): three bands, lines at right angles
+
+// Each card's size, by the way the chart reads: left to right in a wide view, where cards inside the
+// part carry two lines of what they do, and top to bottom in the panel, where they are smaller.
+// Outside cards are slim in both.
+export const CARD_SIZES = {
+  RIGHT: { inside: { w: 236, h: 78 }, outside: { w: 184, h: 36 } },
+  DOWN: { inside: { w: 188, h: 50 }, outside: { w: 160, h: 32 } },
+};
+// The words over each band: what uses the part, what is in it, what it uses.
+const BANDS = ["Used by", "Inside", "Uses"];
+
+// An outside service is drawn as outside the part even on the top level, where it is one of the
+// app's own nodes: in the band of what is used, as a slim card.
+const isOutside = (card) => !card.isInside || card.kind === "external";
+export const bandOf = (card) => (isOutside(card) ? (card.side === "above" ? 0 : 2) : 1);
+export const sizeOf = (card, direction) => CARD_SIZES[direction][isOutside(card) ? "outside" : "inside"];
+
+// A level as draw/lay.js takes it.
+export function elkLevel(key, level, direction) {
+  return {
+    key,
+    direction,
+    cards: [...level.inside, ...level.outside].map((card) => ({ id: card.id, band: bandOf(card), ...sizeOf(card, direction) })),
+    lines: level.lines.map(({ key: lineKey, from, to }) => ({ key: lineKey, from, to })),
+  };
+}
+
+// ELK's places as what the chart draws, at `zoom`, in the middle of a view `viewWidth` wide when it
+// is narrower: the cards in reading order (band by band, then down, then across), each line's
+// corners, and each band's extent and words. A card or line ELK left out is left out.
+export function fromElk(level, elk, { zoom = 1, viewWidth = 0, insideLabel = "Inside" } = {}) {
+  const width = elk.width * zoom;
+  const left = Math.max(0, (viewWidth - width) / 2);
+  const at = ([x, y]) => [left + x * zoom, y * zoom];
+  const cards = [...level.inside, ...level.outside]
+    .filter((card) => elk.cards[card.id])
+    .map((card) => {
+      const [x, y] = at(elk.cards[card.id]);
+      const size = sizeOf(card, elk.direction);
+      return { ...card, band: bandOf(card), x, y, w: size.w * zoom, h: size.h * zoom };
+    })
+    .sort((a, b) => a.band - b.band || (elk.direction === "RIGHT" ? a.y - b.y || a.x - b.x : a.y - b.y || a.x - b.x));
+  const lines = level.lines.filter((line) => elk.lines[line.key]).map((line) => ({ ...line, points: elk.lines[line.key].map(at) }));
+  return { cards, lines, bands: bandsOf(cards, elk.direction, insideLabel, zoom), width: left + width, height: elk.height * zoom, zoom, direction: elk.direction };
+}
+
+// Each band with cards: its words and count, where they go (over the band), and how wide its rule
+// under them is.
+function bandsOf(cards, direction, insideLabel, zoom) {
+  const bands = [];
+  for (const band of [0, 1, 2]) {
+    const inBand = cards.filter((card) => card.band === band);
+    if (!inBand.length) continue;
+    const x0 = Math.min(...inBand.map((card) => card.x));
+    const x1 = Math.max(...inBand.map((card) => card.x + card.w));
+    const y0 = Math.min(...inBand.map((card) => card.y));
+    const all = direction === "DOWN" ? { x0: Math.min(...cards.map((card) => card.x)), x1: Math.max(...cards.map((card) => card.x + card.w)) } : { x0, x1 };
+    bands.push({ band, label: band === 1 ? insideLabel : BANDS[band], count: inBand.length, x: all.x0, y: Math.max(0, y0 - 24 * zoom), w: all.x1 - all.x0 });
+  }
+  return bands;
+}

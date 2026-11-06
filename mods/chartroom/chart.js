@@ -1,5 +1,5 @@
-// The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with curved
-// lines between them, and under it the card picked, with what it uses and what uses it.
+// The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with the lines
+// between them, and beside or under it the card picked, with what it uses and what uses it.
 import { div, svg, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 
@@ -8,18 +8,21 @@ const ICONS = "mods/workspace-chrome";
 // Each kind of card: the word under its name and Herdr's icon for it.
 const KINDS = {
   ui: { word: "app", icon: "monitor" },
-  service: { word: "server", icon: "server" },
+  service: { word: "server", icon: "terminal" },
   worker: { word: "background jobs", icon: "clock" },
   feature: { word: "feature", icon: "folder" },
   library: { word: "shared code", icon: "layers" },
   data: { word: "data", icon: "archive" },
   config: { word: "setup", icon: "settings" },
   test: { word: "tests", icon: "circle-check" },
-  external: { word: "outside service", icon: "square" },
+  external: { word: "outside service", icon: "server" },
   file: { word: "file", icon: "file-text" },
   misc: { word: "other", icon: "folder" },
 };
 const LINE_WIDTH = 1.2;
+// A level with more lines than this draws them faintly until a card is picked or pointed at, so
+// its shape reads before its every link does.
+const BUSY_LINES = 18;
 const LIT_LINE_WIDTH = 1.8;
 const ROW_HEIGHT = 28;
 
@@ -39,51 +42,164 @@ function subline(card) {
   return files ? `${kindOf(card).word} · ${plural(files, "file")}` : kindOf(card).word;
 }
 
-// The level's cards and lines, at the places layOut gave them. The lines of the card picked are
-// drawn over the others in the accent colour.
+// The level's cards and lines. With ELK's layout (laid.lines): three bands with their words over
+// them, lines at right angles with rounded corners meeting each card at a port dot of their own,
+// cards inside the part with what they do, and slim pills for the cards outside it. With the plain
+// layout (laid.curves) when ELK could not lay the level out: curves with arrows and small cards.
+// The picked card's lines are lit and the others step back; a card under the pointer lights its
+// own lines too.
 //
 // Moving runs natively: a level fades in when it is new (`levelKey` changed and `isEntering`), the
-// picked card's lines fade in, and cards glide to new places while the view is resized, the other
-// lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
-export function chartView({ t, laid, selected, onPick, levelKey, isEntering, isLitEntering, isMoving }) {
-  const isLit = (curve) => curve.from === selected || curve.to === selected;
-  return div().id(`level-${levelKey}`).relative().w_full().h(laid.height).opacity(isEntering ? 0 : 1).transition("opacity", FADE)
+// picked card's lines fade in, and cards glide to new places while the view is resized or zoomed,
+// the other lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
+export function chartView({ t, laid, selected, hovered, onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
+  const lines = laid.lines ?? laid.curves;
+  const touches = (line, id) => Boolean(id) && (line.from === id || line.to === id);
+  const lit = lines.filter((line) => touches(line, selected));
+  const hot = lines.filter((line) => !touches(line, selected) && touches(line, hovered));
+  const quiet = lines.filter((line) => !touches(line, selected) && !touches(line, hovered));
+  const zoom = laid.zoom ?? 1;
+  const isElk = Boolean(laid.lines);
+  const card = (box) => (isElk ? elkCard : plainCard)(t, box, box.id === selected, onPick, onHover, zoom, laid.direction);
+  return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
+    .opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
-      ...lineLayers(laid.curves.filter((curve) => !isLit(curve)), thin(t.dim, "a0"), LINE_WIDTH, "lines", isMoving),
-      ...lineLayers(laid.curves.filter(isLit), t.accent, LIT_LINE_WIDTH, `lit-${selected}`, isLitEntering),
-      ...laid.cards.map((box) => cardView(t, box, box.id === selected, onPick)),
+      ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y + 9 * zoom).w(band.w).h(1).bg(t.border)),
+      ...strokes(quiet, thin(t.dim, quietAlpha(lines.length > BUSY_LINES, Boolean(selected || hovered))), LINE_WIDTH, "lines", isMoving),
+      ...strokes(hot, thin(t.accent, "90"), LINE_WIDTH, `hot-${hovered}`, false),
+      ...strokes(lit, t.accent, LIT_LINE_WIDTH, `lit-${selected}`, isLitEntering),
+      ...laid.cards.map(card),
+      ...(isElk ? [...ports(t, [...quiet, ...hot], t.dim, zoom, "ports", isMoving), ...ports(t, lit, t.accent, zoom, `lit-ports-${selected}`, isLitEntering)] : []),
+      ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y).px(6 * zoom).bg(t.chrome).rounded(4)
+        .text_size(11 * zoom).font_medium().text_color(t.dim).child(`${band.label}  ${band.count}`)),
     ]);
 }
 
+// How strongly the lines not lit are drawn: fainter on a busy level, and fainter still while a
+// card's own lines are lit.
+const quietAlpha = (isBusy, isFocused) => (isBusy ? (isFocused ? "26" : "4a") : isFocused ? "60" : "b0");
+
 const FADE = { duration: 180, easing: "ease-out" };
 const GLIDE = { duration: 220, easing: "ease-out" };
+const RADIUS = 9;
 
-function lineLayers(curves, color, width, id, isHidden) {
-  if (!curves.length) return [];
+// Lines as one layer: right-angled routes with their corners rounded, or curves with arrowheads.
+function strokes(lines, color, width, id, isHidden) {
+  if (!lines.length) return [];
   let stroke = PathBuilder.stroke(width);
   let heads = PathBuilder.fill();
-  for (const { start, c1, c2, end, arrow } of curves) {
-    stroke = stroke.move_to(start[0], start[1]).cubic_bezier_to(end[0], end[1], c1[0], c1[1], c2[0], c2[1]);
-    heads = heads.add_polygon(arrow, true);
+  let hasHeads = false;
+  for (const line of lines) {
+    if (line.points) stroke = rounded(stroke, line.points);
+    else {
+      stroke = stroke.move_to(line.start[0], line.start[1]).cubic_bezier_to(line.end[0], line.end[1], line.c1[0], line.c1[1], line.c2[0], line.c2[1]);
+      heads = heads.add_polygon(line.arrow, true);
+      hasHeads = true;
+    }
   }
-  return [stroke.build(), heads.build()].map((path, index) => window.paint_path(path, color).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
+  const paths = hasHeads ? [stroke.build(), heads.build()] : [stroke.build()];
+  return paths.map((path, index) => window.paint_path(path, color).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
     .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
 }
 
-// A card as the Changes panel draws a file: its icon and name, and under it what it is. An outside
-// card sits on the panel's ground instead of a card's. A double click opens a card that holds more.
-function cardView(t, box, isSelected, onPick) {
-  const isInside = box.isInside;
-  return v_flex().id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h).px(10).gap(2).justify_center()
+// A route through its corners, each corner a short curve instead of a sharp turn.
+function rounded(builder, points) {
+  let path = builder.move_to(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const [px, py] = points[i - 1];
+    const [cx, cy] = points[i];
+    const [nx, ny] = points[i + 1];
+    const into = Math.hypot(cx - px, cy - py);
+    const out = Math.hypot(nx - cx, ny - cy);
+    if (into < 0.5 || out < 0.5) continue;
+    const r = Math.min(RADIUS, into / 2, out / 2);
+    path = path.line_to(cx - ((cx - px) / into) * r, cy - ((cy - py) / into) * r).curve_to(cx + ((nx - cx) / out) * r, cy + ((ny - cy) / out) * r, cx, cy);
+  }
+  const last = points.at(-1);
+  return path.line_to(last[0], last[1]);
+}
+
+// A small ring where each line meets a card, on the panel's ground.
+function ports(t, lines, color, zoom, id, isHidden) {
+  if (!lines.length) return [];
+  const r = Math.max(2.4, 3.2 * zoom);
+  const ring = ([x, y]) => Array.from({ length: 12 }, (_, i) => [x + r * Math.cos((i * Math.PI) / 6), y + r * Math.sin((i * Math.PI) / 6)]);
+  let ground = PathBuilder.fill();
+  let edge = PathBuilder.stroke(1.2);
+  for (const line of lines) {
+    for (const point of [line.points[0], line.points.at(-1)]) {
+      ground = ground.add_polygon(ring(point), true);
+      edge = edge.add_polygon(ring(point), true);
+    }
+  }
+  return [[ground.build(), t.chrome], [edge.build(), color]].map(([path, paint], index) => window.paint_path(path, paint).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
+    .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
+}
+
+// What a card does, in two lines at most, broken between words to fit its width.
+function twoLines(words, width, size) {
+  const max = Math.max(8, Math.floor(width / (size * 0.53)));
+  const rest = (words || "").split(/\s+/).filter(Boolean);
+  let first = "";
+  while (rest.length && (first ? first.length + 1 : 0) + rest[0].length <= max) first += (first ? " " : "") + rest.shift();
+  return [first || rest.shift() || "", rest.join(" ")].filter(Boolean);
+}
+
+// The parts every card shares: its place and size, gliding there, its frame, and picking it.
+function framed(el, t, box, isSelected, onPick, onHover) {
+  return el.id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h)
     .transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE)
-    .rounded(8).border_1().border_color(isSelected ? t.accent : t.border).bg(isSelected ? t.selected : isInside ? t.background : t.chrome)
-    .cursor_pointer().hover((s) => s.bg(t.hover))
+    .border_1().border_color(isSelected ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
     .tooltip(box.summary || box.label)
-    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx))
+    .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
+    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx));
+}
+
+const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_none().text_color(t.dim);
+
+// A card on ELK's layout. Inside the part: its icon on a tile, its name, and in a wide view two lines
+// of what it does, else what it is. Outside it: a slim pill with its icon and name.
+function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
+  const ground = isSelected ? t.selected : box.isInside && box.kind !== "external" ? t.background : t.chrome;
+  if (!box.isInside || box.kind === "external") {
+    return framed(h_flex(), t, box, isSelected, onPick, onHover).rounded(box.h / 2).bg(ground).px(11 * zoom).gap(7 * zoom).items_center()
+      .child(svg(iconOf(box)).size(13 * zoom).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().text_size(12.5 * zoom).text_color(t.muted).child(box.label))
+      .when(box.isOpenable, (el) => el.child(chevron(t, 11 * zoom)));
+  }
+  const isTall = direction === "RIGHT";
+  const route = box.kind === "file" && isTall ? box.routes?.[0] : null;
+  const about = isTall ? twoLines(box.summary || subline(box), box.w - 24 * zoom, 11.8 * zoom).slice(0, route ? 1 : 2) : [subline(box)];
+  return framed(v_flex(), t, box, isSelected, onPick, onHover).rounded(9 * zoom).bg(ground).px(11 * zoom).gap(4 * zoom).justify_center()
+    .child(h_flex().min_w(0).gap(8 * zoom).items_center()
+      .child(div().size(20 * zoom).flex_none().rounded(5 * zoom).bg(t.raised).flex().items_center().justify_center()
+        .child(svg(iconOf(box)).size(12 * zoom).text_color(t.muted)))
+      .child(div().flex_1().min_w(0).truncate().text_size(13 * zoom).font_semibold().text_color(t.foreground).child(box.label))
+      .when(box.isOpenable, (el) => el.child(chevron(t, 12 * zoom))))
+    .children(about.map((line) => div().min_w(0).truncate().text_size((isTall ? 11.8 : 11) * zoom).text_color(isTall ? t.muted : t.dim).child(line)))
+    .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom)));
+}
+
+// A file's first endpoint as a chip: its method on a tint, its path in the terminals' font, and how
+// many more there are.
+function routeChip(t, route, more, zoom) {
+  return h_flex().min_w(0).gap(6 * zoom).items_center()
+    .child(div().flex_none().px(4 * zoom).rounded(3).bg(thin(t.accent, "26")).text_size(9.5 * zoom).font_semibold().text_color(t.accent).child(route.m))
+    .child(div().min_w(0).truncate().font_family("JetBrains Mono").text_size(10.5 * zoom).text_color(t.muted).child(route.p))
+    .when(more > 0, (el) => el.child(div().flex_none().text_size(10.5 * zoom).text_color(t.dim).child(`+${more}`)));
+}
+
+// A card on the plain layout, as the Changes panel draws a file: its icon and name, and under it
+// what it is. An outside card sits on the panel's ground. A double click opens a card that holds
+// more.
+function plainCard(t, box, isSelected, onPick, onHover) {
+  const isInside = box.isInside;
+  return framed(v_flex(), t, box, isSelected, onPick, onHover).px(10).gap(2).justify_center().rounded(8)
+    .bg(isSelected ? t.selected : isInside ? t.background : t.chrome)
     .child(h_flex().min_w(0).gap(6).items_center()
       .child(svg(iconOf(box)).size(13).flex_none().text_color(isInside ? t.muted : t.dim))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().text_color(isInside ? t.foreground : t.muted).child(box.label))
-      .when(box.isOpenable, (el) => el.child(svg(`${ICONS}/chevron-right.svg`).size(12).flex_none().text_color(t.dim))))
+      .when(box.isOpenable, (el) => el.child(chevron(t, 12))))
     .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(subline(box)));
 }
 

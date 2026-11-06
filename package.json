@@ -5,5 +5,8 @@
   "scripts": {
     "test": "bun test",
     "check": "herdr-app check mods/chartroom"
+  },
+  "dependencies": {
+    "elkjs": "0.9.3"
   }
 }
