@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asksFrom, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -122,5 +122,32 @@ describe("asks", () => {
 
   test("STOP_ASK leaves a pid that is no question alone", () => {
     expect(sh(STOP_ASK, String(process.pid))).toMatchObject({ code: 1, stderr: "that question is answered already\n" });
+  });
+});
+
+describe("CHANGED", () => {
+  const repo = project("lantern", {});
+  const git = (...args) => Bun.spawnSync(["git", "-C", repo, ...args], { env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } });
+  const chartFile = join(repo, ".chartroom", "chart.json");
+
+  test("counts the commits since the chart's head and the files changed after it was written", () => {
+    git("init", "-q");
+    write(join(repo, "a.ts"), "a");
+    write(join(repo, "old.ts"), "old");
+    git("add", ".");
+    git("commit", "-q", "-m", "one");
+    const head = git("rev-parse", "HEAD").stdout.toString().trim();
+    write(join(repo, "old.ts"), "changed before the chart");
+    Bun.spawnSync(["touch", "-t", "202001010000", join(repo, "old.ts")]);
+    write(chartFile, "{}");
+    write(join(repo, "a.ts"), "a, changed");
+    git("commit", "-q", "-am", "two");
+    write(join(repo, "b.ts"), "new");
+    Bun.spawnSync(["touch", "-t", "203001010000", join(repo, "b.ts")]);
+    expect(sh(CHANGED, repo, chartFile, "", head).stdout).toBe("1 1\n");
+  });
+
+  test("counts a head git no longer knows as a commit", () => {
+    expect(sh(CHANGED, repo, chartFile, "", "0000000000000000000000000000000000000000").stdout).toBe("1 1\n");
   });
 });

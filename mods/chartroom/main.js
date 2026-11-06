@@ -13,9 +13,9 @@ import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickF
 import { cardIdOn, detailsOf, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView } from "./chart.js";
-import { asksFrom, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
+import { asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
-import { endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
+import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
 // The layout block the panel lives in, and the tab bar's button: install.sh adds both.
 const BLOCK = "chartroom";
@@ -56,6 +56,8 @@ const ZOOM_STEP = 1.2;
 // bigger than this is laid out plainly. Levels one click away are laid out ahead, this many at once.
 const MAX_LAY_ARG = 400 * 1024;
 const MAX_AHEAD = 12;
+// While open, how often the code is looked at for changes since the chart.
+const CHANGED_MS = 30000;
 // While a question is being answered, its answer is looked for this often.
 const ASK_POLL_MS = 1500;
 // A press that moves this far is a drag of the chart, not a click on a card. The chart moves
@@ -150,6 +152,9 @@ export default class Chartroom extends View {
     cx.timer.every(READ_MS, (cx) => {
       if (isOpen() && (this.place?.on || !this.chart || this.isDrawing || this.error)) this.refresh(cx);
     });
+    // How far the code moved on since the chart: commits and files, or null when not known.
+    this.changed = null;
+    cx.timer.every(CHANGED_MS, (cx) => isOpen() && this.checkChanged(cx));
     // pane.go moves onto the panel too ("focusable" in mod.json).
     cx.spawn(async (cx) => {
       for (;;) {
@@ -379,7 +384,30 @@ export default class Chartroom extends View {
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
     this.chartVersion += 1;
     this.layouts = new Map();
+    this.changed = null;
     this.enter(cx);
+    this.checkChanged(cx);
+  }
+
+  // Asks git how far the code moved on since the chart was drawn: the commits past the head each
+  // repo was at, and the files changed after the chart was written.
+  checkChanged(cx) {
+    const chart = this.chart;
+    const folder = this.folder;
+    const repos = (chart?.meta?.repos ?? []).filter((repo) => repo.head);
+    if (!chart || !folder || this.isDrawing || !repos.length) return;
+    const file = `${folder}/${this.kind === "floorplan" ? "floorplan/graph.json" : ".chartroom/chart.json"}`;
+    cx.spawn(async (cx) => {
+      try {
+        const result = await exec("sh", ["-c", CHANGED, "changed", folder, file, ...repos.flatMap((repo) => [repo.path ?? "", repo.head])], { on: this.place?.on });
+        if (result.code !== 0 || this.chart !== chart) return;
+        const [commits, files] = result.stdout.trim().split(" ").map(Number);
+        this.changed = { commits: commits || 0, files: files || 0 };
+      } catch (error) {
+        console.log(`chartroom: could not tell what changed in ${folder}: ${error.message ?? error}`);
+      }
+      cx.notify();
+    });
   }
 
   // A new level fades in: drawn see-through once, then brought up natively (chart.js).
@@ -872,6 +900,7 @@ export default class Chartroom extends View {
       .child(this.header(t))
       .when(Boolean(view), (el) => el.child(this.trail(t, view.level)))
       .when(Boolean(view) && this.isDrawing, (el) => el.child(updateStrip({ t, progress: this.progress, onStop: (cx) => this.stop(cx) })))
+      .when(Boolean(view) && !this.isDrawing && this.isBehind(), (el) => el.child(changedStrip({ t, changed: this.changed, isOwn: this.kind === "chartroom", onUpdate: (cx) => this.draw(cx) })))
       .when(Boolean(error), (el) => el.child(div().flex_none().px(16).py(6).text_size(12).line_height("17px").text_color(t.blocked).child(error)))
       .child(this.body(t, view))
       // As the status bar beside it.
@@ -910,17 +939,33 @@ export default class Chartroom extends View {
 
   // As the Changes panel's header, in line with the tab bar: its name, the project it charts (a
   // button to pick another), and its buttons.
+  // Whether the code moved on since the chart.
+  isBehind() {
+    return Boolean(this.changed && (this.changed.commits > 0 || this.changed.files > 0));
+  }
+
   header(t) {
     const canUpdate = Boolean(this.chart) && !this.isDrawing && !this.isPicking && !this.place?.on;
+    const isOwn = this.kind === "chartroom";
     return h_flex().h(42).flex_none().pl(16).pr(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Chartroom"))
       .child(this.projectButton(t))
       .child(div().flex_1())
       .when(this.isReading && Boolean(this.chart), (el) => el.child(svg(`${ICONS}/spinner.svg`).size(13).flex_none().text_color(t.muted).spin(900)))
-      .when(canUpdate, (el) => el.child(this.iconButton(t, "redraw", svg(`${ICONS}/square-pen.svg`).size(14),
-        this.kind === "chartroom" ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)", (_e, cx) => this.draw(cx))))
+      .when(canUpdate, (el) => el.child(this.updateButton(t, isOwn)))
       .when(!isTab() && Boolean(this.place?.cwd), (el) => el.child(this.iconButton(t, "full-size", svg(`${ICONS}/square.svg`).size(13), "Full size, in a tab of its own (f)", () => this.openFullSize())))
       .when(!isTab(), (el) => el.child(this.iconButton(t, "hide", svg(`${ICONS}/x.svg`).size(14), "Close (esc)", () => this.hide())));
+  }
+
+  // The header's Update: a word and an icon, lit while the code has moved on since the chart.
+  updateButton(t, isOwn) {
+    const isBehind = this.isBehind();
+    return h_flex().id("redraw").flex_none().h(26).px(8).gap(5).items_center().rounded(6).text_size(12)
+      .text_color(isBehind ? t.accent : t.muted).when(isBehind, (el) => el.border_1().border_color(t.accent))
+      .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
+      .tooltip(isOwn ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)")
+      .on_click((_e, cx) => this.draw(cx))
+      .child(div().text_size(14).child("↻")).child(isOwn ? "Update" : "Draw");
   }
 
   // The project charted, with a pin when it was picked rather than followed.
