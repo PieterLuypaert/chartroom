@@ -206,8 +206,8 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   a note saying why.
 - Polls: the chart is read again every 15s (`READ_MS`) while remote, chartless, drawing or failed; the
   changed check every 30s; answers and explanations every 1.5s while they run. Limits: 6000 files of at most
-  400 KiB in a scan; a 15-minute timeout and one retry per Claude call; 20 answers kept per
-  project (`ask.js` deletes older ones), 100 read, 8 shown per card or level.
+  400 KiB in a scan; a 15-minute timeout and one retry per Claude call; answers: `ask.js` keeps
+  the newest 8 per card and per level, 200 in all, and the panel reads 200 and shows 8.
 - A drawing runs detached and its `pid` file is the lock. It counts as running only while that pid lives and
   `ps` shows `draw/draw.js`, so a stale pid is never taken for one. The home folder is refused. `bun` must
   be on the PATH the Herdr app runs programs with.
