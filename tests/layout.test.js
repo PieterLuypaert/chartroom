@@ -67,6 +67,12 @@ describe("layOut", () => {
     expect(y("b")).toBeLessThan(y("c"));
   });
 
+  test("breaks a loop on its lighter way round", () => {
+    const level = { inside: ["a", "b"].map(card), outside: [], lines: [line("a", "b"), { ...line("b", "a"), weight: 5 }] };
+    const laid = layOut(level, 460);
+    expect(boxOf(laid, "b").y).toBeLessThan(boxOf(laid, "a").y);
+  });
+
   test("puts the cards no link touches in the last layer", () => {
     const level = { inside: ["lone", "a", "b"].map(card), outside: [], lines: [line("a", "b")] };
     const laid = layOut(level, 460);

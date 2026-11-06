@@ -45,45 +45,60 @@ export function layOut(level, width) {
 }
 
 // The inside cards in layers: each card one layer below the deepest card that uses it, with the
-// links that close a loop left out, and the cards no inside link touches in the last layer.
+// links that point backwards in forwardOrder left out, and the cards no inside link touches in the
+// last layer.
 function layersOf(cards, lines) {
   const ids = cards.map((card) => card.id);
-  const next = new Map(ids.map((id) => [id, []]));
-  const hasIn = new Set();
+  const outs = new Map(ids.map((id) => [id, []]));
+  const ins = new Map(ids.map((id) => [id, []]));
   for (const line of lines) {
-    if (!next.has(line.from) || !next.has(line.to)) continue;
-    next.get(line.from).push(line.to);
-    hasIn.add(line.to);
+    if (!outs.has(line.from) || !outs.has(line.to)) continue;
+    outs.get(line.from).push({ id: line.to, weight: line.weight ?? 1 });
+    ins.get(line.to).push({ id: line.from, weight: line.weight ?? 1 });
   }
-  const { kept, order } = withoutLoops(ids, next, hasIn);
+  const order = forwardOrder(ids, outs, ins);
+  const at = new Map(order.map((id, index) => [id, index]));
   const depth = new Map(ids.map((id) => [id, 0]));
-  for (const id of order) for (const to of kept.get(id)) depth.set(to, Math.max(depth.get(to), depth.get(id) + 1));
-  const isLinked = (id) => next.get(id).length > 0 || hasIn.has(id);
+  for (const id of order) for (const to of outs.get(id)) if (at.get(to.id) > at.get(id)) depth.set(to.id, Math.max(depth.get(to.id), depth.get(id) + 1));
+  const isLinked = (id) => outs.get(id).length > 0 || ins.get(id).length > 0;
   const deepest = Math.max(0, ...ids.filter(isLinked).map((id) => depth.get(id)));
   const layers = Array.from({ length: deepest + 1 }, () => []);
   for (const card of cards) layers[isLinked(card.id) ? depth.get(card.id) : deepest].push(card);
   return layers;
 }
 
-// A walk from the cards nothing uses first: the links that lead back to a card still being walked
-// close a loop and are left out. The order the walk finishes in, reversed, puts every card after
-// all that use it.
-function withoutLoops(ids, next, hasIn) {
-  const kept = new Map(ids.map((id) => [id, []]));
-  const state = new Map();
-  const finished = [];
-  const visit = (id) => {
-    state.set(id, "walking");
-    for (const to of next.get(id)) {
-      if (state.get(to) === "walking") continue;
-      kept.get(id).push(to);
-      if (!state.has(to)) visit(to);
+// The cards in an order where as little as possible, by the links' weight, points backwards (Eades,
+// Lin and Smyth's greedy order): cards that use nothing left go last, cards nothing left uses go
+// first, and otherwise the card that uses the most more than it is used goes next. In a loop, the
+// lighter way round is the one that gives way.
+function forwardOrder(ids, outs, ins) {
+  const left = new Set(ids);
+  const weighOf = (ends) => ends.reduce((sum, end) => (left.has(end.id) ? sum + end.weight : sum), 0);
+  const head = [];
+  const tail = [];
+  while (left.size) {
+    let isMoved = true;
+    while (isMoved) {
+      isMoved = false;
+      for (const id of [...left]) {
+        if (weighOf(outs.get(id)) === 0) {
+          tail.unshift(id);
+          left.delete(id);
+          isMoved = true;
+        } else if (weighOf(ins.get(id)) === 0) {
+          head.push(id);
+          left.delete(id);
+          isMoved = true;
+        }
+      }
     }
-    state.set(id, "done");
-    finished.push(id);
-  };
-  for (const id of [...ids.filter((one) => !hasIn.has(one)), ...ids]) if (!state.has(id)) visit(id);
-  return { kept, order: finished.reverse() };
+    if (!left.size) break;
+    const score = (id) => weighOf(outs.get(id)) - weighOf(ins.get(id));
+    const next = [...left].reduce((best, id) => (score(id) > score(best) ? id : best));
+    head.push(next);
+    left.delete(next);
+  }
+  return [...head, ...tail];
 }
 
 // The group with the cards linked to ones already placed moved under the middle of those, each
