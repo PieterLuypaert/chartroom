@@ -18,6 +18,12 @@ describe("parts", () => {
     expect(globToRegExp("api/src/*.ts").test("api/src/x/y.ts")).toBe(false);
   });
 
+  test("reads globs however they are written: from ./ or /, with {a,b}", () => {
+    expect(globToRegExp("./src/**").test("src/a/b.ts")).toBe(true);
+    expect(globToRegExp("/src/**").test("src/a.ts")).toBe(true);
+    expect(["src/api/x.ts", "src/web/y.ts", "src/jobs/z.ts"].map((path) => globToRegExp("src/{api,web}/**").test(path))).toEqual([true, true, false]);
+  });
+
   test("makes Claude's answer whole: one of each id, parents that exist, links between known ids", () => {
     const checked = checkParts({
       project: { name: "P", summary: "" },
@@ -28,6 +34,20 @@ describe("parts", () => {
     expect(checked.parts.map((part) => [part.id, part.parent])).toEqual([["api", null], ["api.x", null]]);
     expect(checked.outside.map((one) => one.id)).toEqual(["stripe"]);
     expect(checked.links).toEqual([{ from: "api", to: "stripe", label: "pays" }]);
+  });
+
+  test("puts a part that is its own parent, or closes a loop of parents, at the top", () => {
+    const checked = checkParts({ project: {}, parts: [{ id: "a", parent: "a" }, { id: "b", parent: "c" }, { id: "c", parent: "b" }, { id: "d", parent: "c" }], outside: [], links: [] });
+    const parentOf = Object.fromEntries(checked.parts.map((part) => [part.id, part.parent]));
+    expect(parentOf.a).toBeNull();
+    expect([parentOf.b, parentOf.c].filter((parent) => parent === null).length).toBe(1);
+    expect(parentOf.d).toBe("c");
+  });
+
+  test("renames a part called other, which is kept for the files no part claims", () => {
+    const checked = checkParts({ project: {}, parts: [{ id: "other", parent: null }, { id: "other.misc", parent: "other" }], outside: [], links: [{ from: "other", to: "other.misc", label: "x" }] });
+    expect(checked.parts.map((part) => [part.id, part.parent])).toEqual([["other-part", null], ["other.misc", "other-part"]]);
+    expect(checked.links).toEqual([{ from: "other-part", to: "other.misc", label: "x" }]);
   });
 
   test("sums the folders' files and lines for the prompt", () => {

@@ -284,7 +284,9 @@ export default class Chartroom extends View {
   up(cx) {
     if (this.focus === null) return false;
     const from = this.focus;
-    this.focus = this.chart.nodes.get(from)?.parent ?? null;
+    const parent = this.chart.nodes.get(from)?.parent ?? null;
+    // A part that is its own parent (a map with a loop in it) leads to the top.
+    this.focus = parent === from ? null : parent;
     this.selected = `n:${from}`;
     cx.notify();
     return true;
@@ -293,7 +295,7 @@ export default class Chartroom extends View {
   // Back to a level on the trail, with the part on the way down from it picked.
   goTo(part, cx) {
     let child = this.focus;
-    while (child !== null && (this.chart.nodes.get(child)?.parent ?? null) !== part) child = this.chart.nodes.get(child)?.parent ?? null;
+    for (let depth = 0; child !== null && depth < 64 && (this.chart.nodes.get(child)?.parent ?? null) !== part; depth += 1) child = this.chart.nodes.get(child)?.parent ?? null;
     this.focus = part;
     this.selected = child === null ? null : `n:${child}`;
     cx.notify();

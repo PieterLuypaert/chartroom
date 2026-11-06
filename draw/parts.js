@@ -91,35 +91,65 @@ export function treeOf(files) {
   return [...shown].sort().map((key) => `${"  ".repeat(key.split("/").length - 1)}${key.split("/").pop()}/  ${folders.get(key).files} files, ${folders.get(key).loc} lines`);
 }
 
-// Claude's answer made whole: ids unique, every parent there, a top part's parent null.
+// The id kept for the files no part claims (build.js): Claude's own part by that name is renamed.
+export const OTHER_ID = "other";
+const ownId = (id) => (id === OTHER_ID ? `${OTHER_ID}-part` : id);
+
+// Claude's answer made whole: ids unique and none of them the one kept for unclaimed files, every
+// parent there, and no part its own parent or ancestor (the part that closes a loop goes to the
+// top), so every part sits somewhere on the chart.
 export function checkParts(answer) {
   const ids = new Set();
   const parts = [];
   for (const part of answer.parts) {
-    const id = part.id.trim();
+    const id = ownId(part.id.trim());
     if (!id || ids.has(id)) continue;
     ids.add(id);
-    parts.push({ ...part, id });
+    parts.push({ ...part, id, parent: part.parent === null ? null : ownId(part.parent.trim()) });
   }
   for (const part of parts) if (part.parent !== null && !ids.has(part.parent)) part.parent = null;
+  breakLoops(parts);
   const outside = [];
   for (const one of answer.outside) {
-    if (!one.id || ids.has(one.id)) continue;
-    ids.add(one.id);
-    outside.push(one);
+    const id = ownId(one.id?.trim() ?? "");
+    if (!id || ids.has(id)) continue;
+    ids.add(id);
+    outside.push({ ...one, id });
   }
-  const links = answer.links.filter((link) => ids.has(link.from) && ids.has(link.to) && link.from !== link.to);
+  const links = answer.links.map((link) => ({ ...link, from: ownId(link.from), to: ownId(link.to) })).filter((link) => ids.has(link.from) && ids.has(link.to) && link.from !== link.to);
   return { project: answer.project, parts, outside, links };
 }
 
-// A glob as a pattern: ** any folders, * any name, ? one character. A path with neither stands
-// for itself and, when it is a folder, everything in it.
-export function globToRegExp(glob) {
+function breakLoops(parts) {
+  const byId = new Map(parts.map((part) => [part.id, part]));
+  for (const part of parts) {
+    const seen = new Set([part.id]);
+    for (let at = byId.get(part.parent); at; at = byId.get(at.parent)) {
+      if (seen.has(at.id)) {
+        part.parent = null;
+        break;
+      }
+      seen.add(at.id);
+    }
+  }
+}
+
+// A glob as a pattern: ** any folders, * any name, ? one character, {a,b} either. A path with none
+// of these stands for itself and, when it is a folder, everything in it. A leading ./ or / means
+// the project's folder, as the paths are relative to it anyway.
+export function globToRegExp(written) {
+  const glob = written.trim().replace(/^(\.\/|\/)+/, "");
   const escape = (value) => value.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  if (!/[*?]/.test(glob)) return new RegExp(`^${escape(glob.replace(/\/+$/, ""))}(?:/.*)?$`);
+  if (!/[*?{]/.test(glob)) return new RegExp(`^${escape(glob.replace(/\/+$/, ""))}(?:/.*)?$`);
   let out = "";
   for (let i = 0; i < glob.length; i += 1) {
     const char = glob[i];
+    if (char === "{" && glob.indexOf("}", i) > i) {
+      const end = glob.indexOf("}", i);
+      out += `(?:${glob.slice(i + 1, end).split(",").map(escape).join("|")})`;
+      i = end;
+      continue;
+    }
     if (char === "*" && glob[i + 1] === "*") {
       const isFolders = glob[i + 2] === "/";
       out += isFolders ? "(?:.*/)?" : ".*";

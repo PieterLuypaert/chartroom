@@ -2,10 +2,11 @@
 // files and endpoints with their names, and every link, by file and by part. Its shape is the one
 // floorplan's maps have, so the panel reads both the same way.
 import { routeKey } from "./describe.js";
+import { OTHER_ID } from "./parts.js";
 
 export const CHART_SCHEMA = "chartroom/chart@1";
 // The part for files no part's patterns match.
-const OTHER = { id: "other", parent: null, label: "Other files", kind: "misc", summary: "Files no part claims yet.", paths: [] };
+const OTHER = { id: OTHER_ID, parent: null, label: "Other files", kind: "misc", summary: "Files no part claims yet.", paths: [] };
 
 const baseName = (path) => path.slice(path.lastIndexOf("/") + 1);
 const nameFromPath = (path) => baseName(path).replace(/\.[^.]+$/, "").replace(/[-_.]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
