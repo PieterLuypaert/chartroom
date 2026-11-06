@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asksAt, asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -119,11 +119,28 @@ describe("asks", () => {
     expect(asksFrom('{"id":"3"}\n{"id":\n\n')).toEqual([{ id: "3" }]);
   });
 
-  test("asksAt keeps the answers asked on that level, a card's among them", () => {
-    const answers = [{ id: "4", focus: "api", card: "f:api/user.ts" }, { id: "3", focus: null }, { id: "2", focus: "ui" }, { id: "1" }];
-    expect(asksAt(answers, "api").map((one) => one.id)).toEqual(["4"]);
-    expect(asksAt(answers, null).map((one) => one.id)).toEqual(["3", "1"]);
-    expect(asksAt(answers, "db")).toEqual([]);
+  describe("asksFor", () => {
+    const answers = [
+      { id: "6", focus: "api", card: "f:api/user.ts" },
+      { id: "5", focus: null, card: "n:api" },
+      { id: "4", focus: "api", card: null },
+      { id: "3", focus: "ui", card: "n:api" },
+      { id: "2", focus: null, card: null },
+      { id: "1" },
+    ];
+    const ids = (found) => found.map((one) => one.id);
+
+    test("a card picked gets only the answers about it, from whichever level it was picked on", () => {
+      expect(ids(asksFor(answers, { focus: null, card: "n:api" }))).toEqual(["5", "3"]);
+      expect(ids(asksFor(answers, { focus: "api", card: "f:api/user.ts" }))).toEqual(["6"]);
+      expect(asksFor(answers, { focus: "api", card: "f:api/other.ts" })).toEqual([]);
+    });
+
+    test("with none picked, a level gets only the answers about itself, a record without a focus at the top", () => {
+      expect(ids(asksFor(answers, { focus: "api", card: null }))).toEqual(["4"]);
+      expect(ids(asksFor(answers, { focus: null, card: null }))).toEqual(["2", "1"]);
+      expect(asksFor(answers, { focus: "ui", card: null })).toEqual([]);
+    });
   });
 
   test("STOP_ASK leaves a pid that is no question alone", () => {
