@@ -1,8 +1,9 @@
 // Where each card of a level goes in a panel this wide, and the curve of each line between them:
 // layers from top to bottom, what uses a card above it, the outside cards that use the level on
-// top and the ones it uses at the bottom, each layer wrapped into rows that fit the width.
+// top and the ones it uses at the bottom, each layer wrapped into rows that fit the width. In a
+// wide view the cards keep a width that reads well, and more of them fit on a row.
 
-export const SIZES = { pad: 14, gap: 10, layerGap: 40, cardHeight: 52, minCardWidth: 132, maxColumns: 4, portInset: 12, arc: 22, arrowLength: 7, arrowWidth: 3.5 };
+export const SIZES = { pad: 14, gap: 10, layerGap: 40, cardHeight: 52, minCardWidth: 132, maxCardWidth: 240, maxColumns: 8, portInset: 12, arc: 22, arrowLength: 7, arrowWidth: 3.5 };
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const centreX = (box) => box.x + box.w / 2;
@@ -15,7 +16,7 @@ export function columnsFor(width) {
 // height it all takes.
 export function layOut(level, width) {
   const columns = columnsFor(width);
-  const cardWidth = Math.max(60, (width - 2 * SIZES.pad - (columns - 1) * SIZES.gap) / columns);
+  const cardWidth = clamp((width - 2 * SIZES.pad - (columns - 1) * SIZES.gap) / columns, 60, SIZES.maxCardWidth);
   const groups = [
     level.outside.filter((card) => card.side === "above"),
     ...layersOf(level.inside, level.lines),

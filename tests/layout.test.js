@@ -19,11 +19,12 @@ function expectTidy(laid, width) {
 }
 
 describe("columnsFor", () => {
-  test("fits as many cards as the width takes, from one to four", () => {
+  test("fits as many cards as the width takes, from one to eight", () => {
     expect(columnsFor(200)).toBe(1);
     expect(columnsFor(340)).toBe(2);
     expect(columnsFor(460)).toBe(3);
-    expect(columnsFor(1400)).toBe(4);
+    expect(columnsFor(900)).toBe(6);
+    expect(columnsFor(2400)).toBe(8);
   });
 });
 
@@ -50,6 +51,15 @@ describe("layOut", () => {
     const laid = layOut(levelOf(chart, "api"), 460);
     const order = laid.cards.map((box) => [box.y, box.x]);
     expect(order).toEqual([...order].sort((a, b) => a[0] - b[0] || a[1] - b[1]));
+  });
+
+  test("keeps cards readable in a wide view, the row in the middle", () => {
+    const level = { inside: ["a", "b"].map(card), outside: [], lines: [line("a", "b")] };
+    const laid = layOut(level, 2400);
+    for (const box of laid.cards) {
+      expect(box.w).toBe(SIZES.maxCardWidth);
+      expect(box.x + box.w / 2).toBeCloseTo(1200);
+    }
   });
 
   test("wraps a layer wider than the panel into rows", () => {
