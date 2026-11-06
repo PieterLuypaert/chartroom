@@ -61,6 +61,8 @@ const CHANGED_MS = 30000;
 // A card picked and kept picked this long is explained (each card once, until the chart changes).
 const EXPLAIN_DELAY = 900;
 const EXPLAIN_SETTING = "explain";
+// The details folded away (d), remembered.
+const FOLDED_SETTING = "detailsFolded";
 // While a question is being answered, its answer is looked for this often.
 const ASK_POLL_MS = 1500;
 // A press that moves this far is a drag of the chart, not a click on a card. The chart moves
@@ -137,6 +139,7 @@ export default class Chartroom extends View {
     Object.assign(this, { asks: [], asksFolder: null, waitingFor: null, shownAnswer: null, isTyping: false });
     // Explaining a card picked: whether it is on (e), the picked card's explanation, and which ask is current.
     Object.assign(this, { explainOn: stored(EXPLAIN_SETTING, true) !== false, explanation: null, explainCount: 0, explaining: null });
+    this.detailsFolded = stored(FOLDED_SETTING, false) === true;
     this.question = InputState.new({ placeholder: "What does it do? What breaks if it goes?" });
     this.question.on("submit", (_e, cx) => this.ask(cx));
     this.question.on("focus", (_e, cx) => {
@@ -734,7 +737,15 @@ export default class Chartroom extends View {
   }
 
   chartWidth() {
-    return Math.round(this.isWide() ? this.size.width - DETAILS_WIDTH : this.size.width);
+    return Math.round(this.isWide() && !this.detailsFolded ? this.size.width - DETAILS_WIDTH : this.size.width);
+  }
+
+  // The details folded away, so the chart gets the whole width, or back; the cards glide there.
+  foldDetails(isFolded, cx) {
+    this.detailsFolded = isFolded;
+    store(FOLDED_SETTING, isFolded);
+    this.moving(cx);
+    cx.notify();
   }
 
   cardOf(view, id) {
@@ -752,6 +763,8 @@ export default class Chartroom extends View {
     const isNew = this.selected !== card.id;
     this.selected = card.id;
     if (isNew) this.explainSoon(cx);
+    // A card picked opens the details again, so what it is and its explanation show.
+    if (isNew && this.detailsFolded) this.foldDetails(false, cx);
     cx.notify();
   }
 
@@ -934,6 +947,7 @@ export default class Chartroom extends View {
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
     else if (view && k === "a" && this.folder && !this.place?.on) this.question.focus();
+    else if (view && k === "d") this.foldDetails(!this.detailsFolded, cx);
     else if (view && k === "e") {
       this.explainOn = !this.explainOn;
       store(EXPLAIN_SETTING, this.explainOn);
@@ -1079,7 +1093,18 @@ export default class Chartroom extends View {
     return h_flex().h(34).flex_none().min_w(0).px(10).gap(4).items_center().border_b(1).border_color(t.border).text_size(12)
       .when(level.focus !== null, (el) => el.child(this.iconButton(t, "up", svg(`${ICONS}/chevron-left.svg`).size(14), "Up a level (⌫)", (_e, cx) => this.up(cx))))
       .children(crumbs)
-      .when(Boolean(this.memo?.laid?.lines), (el) => el.child(this.zoomControls(t)));
+      .when(Boolean(this.memo?.laid?.lines), (el) => el.child(this.zoomControls(t)))
+      .child(this.detailsToggle(t));
+  }
+
+  // At the trail's end: the details shown or folded away, as Herdr's own panel button.
+  detailsToggle(t) {
+    const isShown = !this.detailsFolded;
+    return div().id("details-toggle").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
+      .bg(isShown ? t.selected : t.chrome).text_color(isShown ? t.foreground : t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(isShown ? "Fold the details away (d)" : "Show the details (d)")
+      .on_click((_e, cx) => this.foldDetails(isShown, cx))
+      .child(svg(`${ICONS}/${this.isWide() ? "panel-right" : "panel-left"}.svg`).size(14));
   }
 
   // The chart, and the details under it, or beside it in a wide view. Nothing is drawn before the
@@ -1109,8 +1134,8 @@ export default class Chartroom extends View {
         .child(v_flex().absolute().left(-this.pan.x).top(-this.pan.y)
           .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
           .child(this.canvas(t, view))))
-      .when(isWide, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
-      .when(!isWide, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
+      .when(isWide && !this.detailsFolded, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
+      .when(!isWide && !this.detailsFolded, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
   }
 
   // The level's cards and lines, or while ELK lays it out a word that it does, or the plain layout
@@ -1199,6 +1224,7 @@ export default class Chartroom extends View {
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");
     if (this.folder && !this.place?.on) keys.push("a ask", `e explain ${this.explainOn ? "on" : "off"}`);
+    keys.push(`d details ${this.detailsFolded ? "off" : "on"}`);
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
     if (!isTab()) keys.push("f full size");
     return [...keys, ...close].join("  ·  ");
