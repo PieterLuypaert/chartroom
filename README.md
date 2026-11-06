@@ -73,3 +73,7 @@ bun draw/draw.js <folder>         # draw a chart from the command line
 ## Build it from the recipe
 
 [RECIPE.md](RECIPE.md) describes the Chartroom for an agent to build from an empty folder, as [herdr.dev/mods](https://herdr.dev/mods) shares mods.
+
+## License
+
+[MIT](LICENSE)
