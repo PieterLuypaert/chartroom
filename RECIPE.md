@@ -9,7 +9,9 @@ bottom-left corner. Beside or under the chart, the details show the picked card,
 and the questions asked about it. When the code has moved on since the chart was drawn, a strip says so and
 offers an update.
 
-![Chartroom](preview.png)
+![Chartroom: the whole app, a part picked with its lines lit and its details beside the chart](preview.png)
+
+![Chartroom: inside a part, a file picked with its lines lit to the parts it uses](docs/inside-a-part.png)
 
 ## What you see
 
