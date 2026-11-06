@@ -47,3 +47,13 @@ describe("install.sh", () => {
     expect(json("keys.json").global["cmd-alt-f"]).toBe("app.zoom_in");
   });
 });
+
+describe("install.sh on a layout an earlier install set up", () => {
+  test("keeps the panel to 600 px, so a laptop keeps room for the terminals", () => {
+    put("layouts/mine.json", { id: "root", type: "row", children: [{ id: "work", type: "column", children: [] }, { id: "chartroom", type: "block", hidden: true, size: { px: 900 }, min: 340, max: 960, content: { mod: "chartroom" } }] });
+    expect(install().out).toContain("layout: the panel in mine is at most 600 px wide now");
+    const panel = json("layouts/mine.json").children.find((one) => one.id === "chartroom");
+    expect([panel.max, panel.size.px]).toEqual([600, 460]);
+    expect(install().out).toContain("layout: mine has the panel already");
+  });
+});
