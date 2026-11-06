@@ -1,0 +1,9 @@
+{
+  "name": "chartroom",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "check": "herdr-app check mods/chartroom"
+  }
+}
