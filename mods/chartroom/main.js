@@ -14,7 +14,7 @@ import { cardIdOn, detailsOf, levelOf, projectsOf, readChart } from "./model.js"
 import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView } from "./chart.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
-import { asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
+import { asksAt, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
@@ -136,8 +136,8 @@ export default class Chartroom extends View {
     this.hasSize = false;
     // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
     Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
-    // Questions: the answers of the project showing, the one an answer was asked for and waits on,
-    // the one shown on the chart, and the field to ask in.
+    // Questions: the answers of the project showing (each listed on the level it was asked on), the
+    // one an answer was asked for and waits on, the one shown on the chart, and the field to ask in.
     Object.assign(this, { asks: [], asksFolder: null, waitingFor: null, shownAnswer: null, isTyping: false });
     // Explaining a card picked: whether it is on (e), the picked card's explanation, and which ask is current.
     Object.assign(this, { explanation: null, explainCount: 0, explaining: null });
@@ -352,10 +352,10 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  // The cards on this level the answer shown is about, and the ones the picked card's explanation
-  // names.
+  // The cards the answer shown is about, while on the level it was asked on, and the ones the picked
+  // card's explanation names.
   lighted() {
-    const one = this.asks.find((ask) => ask.id === this.shownAnswer);
+    const one = asksAt(this.asks, this.focus).find((ask) => ask.id === this.shownAnswer);
     const explained = this.explanation?.status === "done" && this.explanation.card === this.selected ? this.explanation.cards ?? [] : [];
     const refs = [...(one?.cards ?? []), ...explained];
     if (!refs.length || !this.chart) return new Set();
@@ -425,7 +425,7 @@ export default class Chartroom extends View {
       canAsk,
       reason: this.place?.on ? "Asking about a chart needs the project on this computer." : "",
       subject: this.labelOf(this.selected, this.focus),
-      asks: this.asks.slice(0, 8).map((one) => ({ ...one, cardLabel: one.card ? this.cardLabel(one.card) : null })),
+      asks: asksAt(this.asks, this.focus).slice(0, 8).map((one) => ({ ...one, cardLabel: one.card ? this.cardLabel(one.card) : null })),
       shownId: this.shownAnswer,
       onAsk: (cx) => this.ask(cx),
       onShow: (one, cx) => this.showAnswer(one, cx),

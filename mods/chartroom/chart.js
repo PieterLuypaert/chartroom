@@ -226,8 +226,8 @@ export function minimapView({ t, map, selected, lighted = new Set(), isDragging,
 }
 
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
-// what was asked about this project, and at the foot a field to ask the person's own Claude about
-// the card picked (or the level).
+// what was asked on this level, and at the foot a field to ask the person's own Claude about the
+// card picked (or the level).
 export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain }) {
   const body = details ? cardDetails(t, details, onPick, onOpen, explain) : levelDetails(t, level, chart);
   return v_flex().size_full().min_h(0)
