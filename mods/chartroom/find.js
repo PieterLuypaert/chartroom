@@ -73,9 +73,9 @@ export const START_ASK = `command -v bun >/dev/null 2>&1 || { echo "bun is not o
 [ -f "$2" ] || { echo "there is no $2: run install.sh again" >&2; exit 4; };
 cd "$1" && mkdir -p .chartroom/asks && (nohup bun "$2" "$1" "$3" "$4" </dev/null >".chartroom/asks/$3.log" 2>&1 &) && echo started`;
 
-// sh -c FIND_ASKS asks <folder>: the latest answers, newest first, one JSON per line. Enough of them
-// that each card and level still has its own recent ones after asksFor.
-export const FIND_ASKS = 'ls -t "$1/.chartroom/asks" 2>/dev/null | grep -E "^[0-9]+\\.json$" | head -n 100 | while IFS= read -r n; do tr -d "\\n" < "$1/.chartroom/asks/$n"; printf "\\n"; done';
+// sh -c FIND_ASKS asks <folder>: the latest answers, newest first, one JSON per line: as many as
+// draw/ask.js keeps (KEPT), so every card and level has its own after asksFor.
+export const FIND_ASKS = 'ls -t "$1/.chartroom/asks" 2>/dev/null | grep -E "^[0-9]+\\.json$" | head -n 200 | while IFS= read -r n; do tr -d "\\n" < "$1/.chartroom/asks/$n"; printf "\\n"; done';
 
 // sh -c STOP_ASK stop <pid>: stops a question still being answered, when that pid is one.
 export const STOP_ASK = 'ps -p "$1" -o command= 2>/dev/null | grep -q "draw/ask.js" || { echo "that question is answered already" >&2; exit 1; }; kill "$1"';
