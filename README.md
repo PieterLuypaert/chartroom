@@ -9,7 +9,7 @@ The Chartroom reads a project, asks `claude` to name its parts and describe ever
 - **Chart**: three bands per level (what uses a part, what is inside it, what it uses), laid out with [ELK](https://eclipse.dev/elk/), with lines at right angles.
 - **Explore**: double-click a card to go inside, scroll to zoom, drag to move around. The minimap in the bottom-left corner shows where you are; click or drag it to move there.
 - **Explain**: have Claude explain any card. Explanations are kept until the chart changes.
-- **Ask**: ask Claude a question about a card or level, and see the cards in its answer lit on the chart.
+- **Ask**: ask Claude a question about a card or level, and see the cards in its answer lit on the chart. Each card and level keeps its own questions: picking a card shows only what was asked about it.
 - **Stay current**: the Chartroom notices when the code has moved on since the chart, and an update re-describes only the files that changed.
 - **Any project**: follow the focused space, or pick any project or folder.
 
