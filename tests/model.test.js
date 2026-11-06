@@ -13,7 +13,7 @@ describe("readChart", () => {
   });
 
   test("says which format it found when it is not one it reads", () => {
-    expect(() => readChart(JSON.stringify({ schema: "floorplan/graph@1" }))).toThrow("the chart is floorplan/graph@1, and the Chartroom reads chartroom/chart@1");
+    expect(() => readChart(JSON.stringify({ schema: "other/graph@1" }))).toThrow("the chart is other/graph@1, and the Chartroom reads chartroom/chart@1");
   });
 
   test("names the chart after the project", () => {
