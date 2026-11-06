@@ -1,7 +1,7 @@
 // The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with the lines
 // between them, and beside or under it the card picked, with what it uses and what uses it.
 import { div, svg, PathBuilder } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, Input, TextView, v_flex } from "gpui-base";
 
 // Herdr's own icons: the app draws no asset reached through the link install.sh makes.
 const ICONS = "mods/workspace-chrome";
@@ -52,24 +52,28 @@ function subline(card) {
 // Moving runs natively: a level fades in when it is new (`levelKey` changed and `isEntering`), the
 // picked card's lines fade in, and cards glide to new places while the view is resized or zoomed,
 // the other lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
-export function chartView({ t, laid, selected, hovered, onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
+//
+// An answer shown lights the cards it is about (`lighted`) and the lines between them.
+export function chartView({ t, laid, selected, hovered, lighted = new Set(), onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
   const lines = laid.lines ?? laid.curves;
   const touches = (line, id) => Boolean(id) && (line.from === id || line.to === id);
-  const lit = lines.filter((line) => touches(line, selected));
-  const hot = lines.filter((line) => !touches(line, selected) && touches(line, hovered));
-  const quiet = lines.filter((line) => !touches(line, selected) && !touches(line, hovered));
+  const isLighted = (line) => lighted.has(line.from) && lighted.has(line.to);
+  const lit = lines.filter((line) => touches(line, selected) || isLighted(line));
+  const hot = lines.filter((line) => !lit.includes(line) && touches(line, hovered));
+  const quiet = lines.filter((line) => !lit.includes(line) && !touches(line, hovered));
   const zoom = laid.zoom ?? 1;
   const isElk = Boolean(laid.lines);
-  const card = (box) => (isElk ? elkCard : plainCard)(t, box, box.id === selected, onPick, onHover, zoom, laid.direction);
+  const isFocused = Boolean(selected || hovered || lighted.size);
+  const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id) }, box.id === selected, onPick, onHover, zoom, laid.direction);
   return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
     .opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
       ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y + 9 * zoom).w(band.w).h(1).bg(t.border)),
-      ...strokes(quiet, thin(t.dim, quietAlpha(lines.length > BUSY_LINES, Boolean(selected || hovered))), LINE_WIDTH, "lines", isMoving),
+      ...strokes(quiet, thin(t.dim, quietAlpha(lines.length > BUSY_LINES, isFocused)), LINE_WIDTH, "lines", isMoving),
       ...strokes(hot, thin(t.accent, "90"), LINE_WIDTH, `hot-${hovered}`, false),
-      ...strokes(lit, t.accent, LIT_LINE_WIDTH, `lit-${selected}`, isLitEntering),
+      ...strokes(lit, t.accent, LIT_LINE_WIDTH, `lit-${selected}-${lighted.size}`, isLitEntering),
       ...laid.cards.map(card),
-      ...(isElk ? [...ports(t, [...quiet, ...hot], t.dim, zoom, "ports", isMoving), ...ports(t, lit, t.accent, zoom, `lit-ports-${selected}`, isLitEntering)] : []),
+      ...(isElk ? [...ports(t, [...quiet, ...hot], t.dim, zoom, "ports", isMoving), ...ports(t, lit, t.accent, zoom, `lit-ports-${selected}-${lighted.size}`, isLitEntering)] : []),
       ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y).px(6 * zoom).bg(t.chrome).rounded(4)
         .text_size(11 * zoom).font_medium().text_color(t.dim).child(`${band.label}  ${band.count}`)),
     ]);
@@ -146,10 +150,11 @@ function twoLines(words, width, size) {
 }
 
 // The parts every card shares: its place and size, gliding there, its frame, and picking it.
+// A card an answer is about wears the accent too, on a tint of it.
 function framed(el, t, box, isSelected, onPick, onHover) {
   return el.id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h)
     .transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE)
-    .border_1().border_color(isSelected ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    .border_1().border_color(isSelected || box.isLighted ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
     .tooltip(box.summary || box.label)
     .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
     .on_click((event, cx) => onPick(box, event.click_count >= 2, cx));
@@ -160,7 +165,7 @@ const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_n
 // A card on ELK's layout. Inside the part: its icon on a tile, its name, and in a wide view two lines
 // of what it does, else what it is. Outside it: a slim pill with its icon and name.
 function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
-  const ground = isSelected ? t.selected : box.isInside && box.kind !== "external" ? t.background : t.chrome;
+  const ground = isSelected ? t.selected : box.isLighted ? thin(t.accent, "1c") : box.isInside && box.kind !== "external" ? t.background : t.chrome;
   if (!box.isInside || box.kind === "external") {
     return framed(h_flex(), t, box, isSelected, onPick, onHover).rounded(box.h / 2).bg(ground).px(11 * zoom).gap(7 * zoom).items_center()
       .child(svg(iconOf(box)).size(13 * zoom).flex_none().text_color(t.muted))
@@ -203,10 +208,56 @@ function plainCard(t, box, isSelected, onPick, onHover) {
     .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(subline(box)));
 }
 
-// Under the chart: the card picked, or the level itself while none is.
-export function detailsView({ t, details, level, chart, onPick, onOpen }) {
+// Beside or under the chart: the card picked, or the level itself while none is, the answers to
+// what was asked about this project, and at the foot a field to ask the person's own Claude about
+// the card picked (or the level).
+export function detailsView({ t, details, level, chart, onPick, onOpen, ask }) {
   const body = details ? cardDetails(t, details, onPick, onOpen) : levelDetails(t, level, chart);
-  return v_flex().id("details").size_full().overflow_y_scrollbar().px(8).py(8).gap(2).children(body);
+  return v_flex().size_full().min_h(0)
+    .child(v_flex().id("details").flex_1().min_h(0).overflow_y_scrollbar().px(8).py(8).gap(2).children(body)
+      .children(answers(t, ask)))
+    .child(askBar(t, ask));
+}
+
+const stopPress = (_e, cx) => cx.stop_propagation();
+
+function answers(t, ask) {
+  if (!ask.asks.length) return [];
+  return [
+    div().px(8).pt(10).pb(2).text_size(11).font_medium().text_color(t.dim).child(`Asked  ${ask.asks.length}`),
+    ...ask.asks.map((one) => answerCard(t, one, ask)),
+  ];
+}
+
+// A question and its answer: Claude's words, still coming, or why there are none. A click lights
+// the cards it is about on the chart, and again puts them out.
+function answerCard(t, one, ask) {
+  const isShown = ask.shownId === one.id;
+  const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.muted).child(TextView.markdown(`answer-text-${one.id}`, one.answer || ""))
+    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading the code…")
+      : div().text_size(12).text_color(t.blocked).child(one.status === "stopped" ? "Stopped." : `No answer: ${one.error ?? "for no reason it gave"}`);
+  return v_flex().id(`answer-${one.id}`).mx(2).my(3).px(10).py(8).gap(6).rounded(8).border_1().border_color(isShown ? t.accent : t.border).bg(t.background)
+    .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.cursor_pointer().hover((s) => s.border_color(t.accent)).on_click((_e, cx) => ask.onShow(one, cx)))
+    .child(h_flex().gap(6).items_start()
+      .child(div().flex_1().min_w(0).text_size(12.5).font_medium().text_color(t.foreground).child(one.question))
+      .when(one.status === "asking", (el) => el.child(div().id(`stop-${one.id}`).flex_none().text_size(11).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
+        .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onStop(one, cx)).child("Stop"))))
+    .when(Boolean(one.cardLabel), (el) => el.child(div().text_size(10.5).text_color(t.dim).child(`about ${one.cardLabel}`)))
+    .child(body)
+    .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().text_size(10.5).text_color(isShown ? t.accent : t.dim)
+      .child(isShown ? `Lit on the chart: ${one.cards.length}` : `${one.cards.length} on the chart: click to light them`)));
+}
+
+// The field at the foot: what it asks about, and Enter or the button to ask.
+function askBar(t, ask) {
+  if (!ask.canAsk) return div().flex_none().px(14).py(8).border_t(1).border_color(t.border).text_size(11.5).text_color(t.dim).child(ask.reason);
+  return v_flex().flex_none().px(10).pt(6).pb(10).gap(5).border_t(1).border_color(t.border)
+    .child(div().px(2).text_size(11).text_color(t.dim).truncate().child(`Ask your Claude about ${ask.subject}`))
+    .child(h_flex().gap(6)
+      .child(div().id("ask-field").flex_1().min_w(0).h(30).px(10).flex().items_center().rounded(8).border_1().border_color(ask.isTyping ? t.accent : t.border)
+        .cursor_text().on_mouse_down("left", stopPress).child(Input.new(ask.field).h_full().text_size(12).text_color(t.foreground)))
+      .child(div().id("ask").flex_none().h(30).px(12).flex().items_center().rounded(8).bg(t.solid).text_color(t.solid_foreground).text_size(12).cursor_pointer()
+        .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onAsk(cx)).child("Ask")));
 }
 
 function levelDetails(t, level, chart) {

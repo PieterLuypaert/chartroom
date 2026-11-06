@@ -7,6 +7,7 @@ The panel draws the chart itself, with your own Claude: it reads the code, asks 
 ## What it shows
 
 - **The chart**: the parts of the app at the top, and inside any part its parts and files, laid out by [ELK](https://eclipse.dev/elk/) in three bands: what uses the part, what is inside it, and what it uses (outside services as slim pills). Lines run at right angles around the cards, each meeting a card at a port of its own. It reads left to right where there is room, top to bottom in the panel, and opens with what the level is and does. Picking or pointing at a card lights its route; on a busy level the other lines stay faint until then. Drag the chart, or scroll, to move around it; `⌘` + scroll zooms around the pointer, `−` `+` zoom and `0` fits.
+- **Ask about it**: pick a card and ask your own Claude about it at the foot of the details ("What breaks if this goes?"), or about the level with no card picked. It reads the chart and, where it needs to, the code, with only the tools that read, in the background. The answer shows under the details, and a click on it lights the cards it is about on the chart. A project keeps its latest twenty answers.
 - **A card's details**: what it does, what it uses and what uses it (with the requests or imports in between), and for a file its endpoints.
 - **Any project**: the focused space's by default, or one picked from every space's project and folders chosen by hand, each marked with whether it has a chart yet.
 - **Full size**: the square in the header (or `f`) opens the Chartroom in a tab of its own, on the same project and level. As any pane, `⌘⇧↵` zooms it, and the window's full screen makes it the whole screen. A wide view fits more cards on a row and puts the details beside the chart.
@@ -48,6 +49,7 @@ Needs Bun, and the Claude Code CLI logged in.
 | `s` | stop the drawing | |
 | `f` | the Chartroom full size, in a tab of its own | |
 | `−` / `+` / `0` | zoom out, in, or fit the width | |
+| `a` | ask your Claude about the card picked (esc leaves the field) | |
 | `esc` | up a level, or close | back to the chart |
 
 A click picks a card, a double click goes inside it, and the trail under the header leads back up.
@@ -61,6 +63,7 @@ bun draw/draw.js <folder> [--update]     # draw a chart from the command line
 ```
 
 - `draw/`: the drawing, run with Bun. `scan.js` reads the code (`extract.js` per file, `resolve.js` for imports and requests); `parts.js` and `describe.js` ask Claude through `claude.js`; `build.js` writes the chart; `draw.js` runs the steps and reports its progress.
+- `draw/ask.js` answers a question about the chart with Claude, in the background, into `.chartroom/asks/`.
 - `draw/lay.js` lays levels out with ELK for the panel, which asks for the level shown and those one click away.
 - `mods/chartroom/`: the panel. `model.js` reads a chart into levels, `layout.js` turns ELK's places into what is drawn (and keeps a plain layout for when ELK cannot run), `find.js` is the shell that finds a chart and starts or stops a drawing; `main.js` is the panel and the tab bar's button, and `chart.js`, `projects.js` and `drawing.js` draw it.
 - Tests run the drawing end to end with a stand-in for `claude` (`tests/fake-claude.js`).
