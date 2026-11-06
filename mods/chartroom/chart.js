@@ -54,7 +54,7 @@ function subline(card) {
 // the other lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
 //
 // An answer shown lights the cards it is about (`lighted`) and the lines between them.
-export function chartView({ t, laid, selected, hovered, lighted = new Set(), onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
+export function chartView({ t, laid, selected, hovered, lighted = new Set(), isInstant = false, onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
   const lines = laid.lines ?? laid.curves;
   const touches = (line, id) => Boolean(id) && (line.from === id || line.to === id);
   const isLighted = (line) => lighted.has(line.from) && lighted.has(line.to);
@@ -64,7 +64,7 @@ export function chartView({ t, laid, selected, hovered, lighted = new Set(), onP
   const zoom = laid.zoom ?? 1;
   const isElk = Boolean(laid.lines);
   const isFocused = Boolean(selected || hovered || lighted.size);
-  const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id) }, box.id === selected, onPick, onHover, zoom, laid.direction);
+  const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id), isInstant }, box.id === selected, onPick, onHover, zoom, laid.direction);
   return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
     .opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
@@ -153,7 +153,7 @@ function twoLines(words, width, size) {
 // A card an answer is about wears the accent too, on a tint of it.
 function framed(el, t, box, isSelected, onPick, onHover) {
   return el.id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h)
-    .transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE)
+    .when(!box.isInstant, (card) => card.transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE))
     .border_1().border_color(isSelected || box.isLighted ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
     .tooltip(box.summary || box.label)
     .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
