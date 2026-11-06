@@ -77,3 +77,20 @@ describe("draw/ask.js", () => {
     expect(kept).toContain("2000.json");
   });
 });
+
+describe("draw/ask.js explaining a card", () => {
+  test("keeps the explanation under the card's key, with the chart it was made for", async () => {
+    const { explainKey } = await import("../mods/chartroom/find.js");
+    const key = explainKey("n:api");
+    const run = Bun.spawnSync(["bun", join(import.meta.dir, "..", "draw", "ask.js"), project, key, JSON.stringify({ explain: true, card: "n:api", focus: null })], { env: { ...process.env, CHARTROOM_CLAUDE: fakeClaude, FAKE_CLAUDE_LOG: claudeLog } });
+    expect(run.exitCode).toBe(0);
+    const record = JSON.parse(readFileSync(join(project, ".chartroom", "explains", `${key}.json`), "utf8"));
+    expect(record).toMatchObject({ id: key, card: "n:api", explain: true, status: "done", cards: ["n:site", "n:site.pages"] });
+    expect(record.question).toContain("Explain this card");
+  });
+
+  test("refuses an explanation under another card's key", () => {
+    const run = Bun.spawnSync(["bun", join(import.meta.dir, "..", "draw", "ask.js"), project, "abc", JSON.stringify({ explain: true, card: "n:api" })], { env: { ...process.env, CHARTROOM_CLAUDE: fakeClaude } });
+    expect(run.exitCode).not.toBe(0);
+  });
+});

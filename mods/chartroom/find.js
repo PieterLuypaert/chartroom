@@ -102,3 +102,14 @@ while [ $# -ge 2 ]; do d="$root\${1:+/$1}"; h=$2; shift 2;
   n=$(git -C "$d" rev-list --count "$h..HEAD" 2>/dev/null) || n=1;
   f=$(git -C "$d" status --porcelain 2>/dev/null | cut -c4- | while IFS= read -r p; do case "$p" in (.chartroom*|floorplan/*) ;; (*) if [ "$d/$p" -nt "$chart" ]; then echo x; fi ;; esac; done | wc -l | tr -d " ");
   commits=$((commits + n)); files=$((files + f)); done; echo "$commits $files"`;
+
+// The file name a card's explanation is kept under (.chartroom/explains/<key>.json): a short hash of
+// its id, as an id holds slashes.
+export function explainKey(card) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < card.length; i += 1) hash = Math.imul(hash ^ card.charCodeAt(i), 0x01000193) >>> 0;
+  return hash.toString(16).padStart(8, "0");
+}
+
+// sh -c FIND_EXPLAIN explain <folder> <key>: a card's explanation, or nothing.
+export const FIND_EXPLAIN = 'cat "$1/.chartroom/explains/$2.json" 2>/dev/null || true';
