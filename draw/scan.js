@@ -8,7 +8,7 @@ import { aliasesOf, endpointFor, goModuleOf, psr4Of, resolverFor } from "./resol
 
 // Folders whose files are installed, built or charted, never written: left out even where git
 // keeps them. In a folder git does not know, the usual build and cache folders are left out too.
-const SKIPPED = new Set(["node_modules", "vendor", "dist", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".chartroom", "floorplan", ".git"]);
+const SKIPPED = new Set(["node_modules", "vendor", "dist", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".chartroom", ".git"]);
 const SKIPPED_WITHOUT_GIT = new Set(["build", "out", "target", "coverage", ".turbo", ".cache", ".venv", "venv"]);
 const MAX_FILE_BYTES = 400 * 1024;
 const MAX_FILES = 6000;
