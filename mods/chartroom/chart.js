@@ -284,11 +284,21 @@ function cardDetails(t, { card, uses, usedBy }, onPick, onOpen, explain) {
   ];
 }
 
-// The picked card explained by the person's own Claude: on its way, its words (Markdown), or why
-// there are none; nothing while explaining is off (e) or the card was only just picked.
+// The picked card explained by the person's own Claude: a button to ask for it, on its way, its
+// words (Markdown), or why there are none, with a button to try again.
 function explained(t, explain) {
   const one = explain?.record;
-  if (!explain?.isOn || !one) return [];
+  if (!one) return [];
+  if (one.status === "none" || one.status === "failed" || one.status === "stopped") {
+    return [v_flex().mx(4).mt(6).mb(4).gap(5)
+      .when(one.status !== "none", (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`)))
+      .child(h_flex().id("explain").h(30).px(12).gap(7).items_center().rounded(8).border_1().border_color(thin(t.accent, "66")).bg(thin(t.accent, "12"))
+        .text_size(12).text_color(t.accent).cursor_pointer().hover((s) => s.bg(thin(t.accent, "26"))).tooltip("Your Claude explains it: what it does, how, and what to watch out for (e)")
+        .on_mouse_down("left", stopPress).on_click((_e, cx) => explain.onExplain(cx))
+        .child(div().size(6).flex_none().rounded_full().bg(t.accent))
+        .child(div().flex_1().child(one.status === "none" ? "Explain this with your Claude" : "Try again"))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child("e")))];
+  }
   const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.foreground).child(TextView.markdown(`explained-${one.id ?? one.card}`, one.answer || ""))
     : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading it…")
       : div().text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`);
