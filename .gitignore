@@ -1,0 +1,3 @@
+# Written by herdr-app check into every mod it loads.
+mods/*/gpui-kit.d.ts
+mods/*/jsconfig.json

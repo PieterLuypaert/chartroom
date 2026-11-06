@@ -1,0 +1,46 @@
+{
+  "schema": "floorplan/graph@1",
+  "meta": { "rootName": "tide-tables", "root": "/work/tide-tables" },
+  "project": { "name": "Tide Tables", "summary": "Shows the tides for every port, and warns harbour masters before a spring tide." },
+  "nodes": [
+    { "id": "site", "parent": null, "label": "Website", "kind": "ui", "summary": "Where sailors look up the tides.", "stats": { "files": 3 } },
+    { "id": "site.pages", "parent": "site", "label": "Pages", "kind": "feature", "summary": "The home page and one page per port.", "stats": { "files": 2 } },
+    { "id": "site.kit", "parent": "site", "label": "Server connection", "kind": "library", "summary": "Asks the server for tides and ports.", "stats": { "files": 1 } },
+    { "id": "api", "parent": null, "label": "Server", "kind": "service", "summary": "Answers the website and the jobs.", "stats": { "files": 4 } },
+    { "id": "api.routes", "parent": "api", "label": "Requests", "kind": "feature", "summary": "Tide times and the list of ports.", "stats": { "files": 2 } },
+    { "id": "api.store", "parent": "api", "label": "Storage", "kind": "data", "summary": "Keeps tides and ports in the database.", "stats": { "files": 1 } },
+    { "id": "jobs", "parent": null, "label": "Jobs", "kind": "worker", "summary": "Fetches the tides every night and warns before spring tides.", "stats": { "files": 2 } },
+    { "id": "mail", "parent": null, "label": "Mail service", "kind": "external", "summary": "Sends the warnings." },
+    { "id": "db", "parent": null, "label": "Database", "kind": "external", "summary": "Postgres." }
+  ],
+  "files": [
+    { "p": "site/src/pages/home.tsx", "n": "site.pages", "loc": 20, "name": "Home page", "d": "Today's tides at the nearest port." },
+    { "p": "site/src/pages/port.tsx", "n": "site.pages", "loc": 30, "name": "Port page", "d": "A week of tides for one port." },
+    { "p": "site/src/kit/client.ts", "n": "site.kit", "loc": 12, "name": "Server client", "d": "Every request the website makes." },
+    { "p": "api/src/index.ts", "n": "api", "loc": 8, "name": "Server start", "d": "Starts the server and mounts the requests." },
+    { "p": "api/src/routes/tides.ts", "n": "api.routes", "loc": 25, "name": "Tide times", "d": "The tides of one port." },
+    { "p": "api/src/routes/ports.ts", "n": "api.routes", "loc": 15, "name": "Ports", "d": "The list of ports." },
+    { "p": "api/src/store/db.ts", "n": "api.store", "loc": 10, "name": "Database client", "d": "The one connection to Postgres." },
+    { "p": "jobs/fetch.py", "n": "jobs", "loc": 40, "name": "Nightly fetch", "d": "Fetches tomorrow's tides." },
+    { "p": "jobs/notify.py", "n": "jobs", "loc": 18, "name": "Spring tide warning", "d": "Mails harbour masters." }
+  ],
+  "routes": [
+    { "f": "api/src/routes/tides.ts", "m": "GET", "p": "/tides/:port", "l": 4, "name": "Tides of a port", "d": "A week of tides." },
+    { "f": "api/src/routes/ports.ts", "m": "GET", "p": "/ports", "l": 3, "name": "All ports", "d": "Every port with a tide table." }
+  ],
+  "links": [
+    { "a": "f:site/src/pages/home.tsx", "b": "f:site/src/kit/client.ts", "k": "import", "w": 1, "names": ["tides"] },
+    { "a": "f:site/src/pages/port.tsx", "b": "f:site/src/kit/client.ts", "k": "import", "w": 1, "names": ["tides"] },
+    { "a": "f:site/src/kit/client.ts", "b": "f:api/src/routes/tides.ts", "k": "http", "w": 1, "labels": ["GET /tides/:port"] },
+    { "a": "f:site/src/kit/client.ts", "b": "f:api/src/routes/ports.ts", "k": "http", "w": 1, "labels": ["GET /ports"] },
+    { "a": "f:api/src/index.ts", "b": "f:api/src/routes/tides.ts", "k": "import", "w": 1, "names": ["tides"] },
+    { "a": "f:api/src/index.ts", "b": "f:api/src/routes/ports.ts", "k": "import", "w": 1, "names": ["ports"] },
+    { "a": "f:api/src/routes/tides.ts", "b": "f:api/src/store/db.ts", "k": "import", "w": 1, "names": ["db"] },
+    { "a": "f:api/src/routes/ports.ts", "b": "f:api/src/store/db.ts", "k": "import", "w": 1, "names": ["db"] },
+    { "a": "f:api/src/store/db.ts", "b": "n:db", "k": "import", "w": 1, "names": ["pg"] },
+    { "a": "f:jobs/fetch.py", "b": "r:0", "k": "http", "w": 1, "labels": ["GET /tides/:port"] },
+    { "a": "f:jobs/fetch.py", "b": "f:jobs/notify.py", "k": "import", "w": 1, "names": ["warn"] },
+    { "a": "f:jobs/notify.py", "b": "n:mail", "k": "http", "w": 1, "labels": ["sends warnings"] },
+    { "a": "f:nowhere.ts", "b": "n:db", "k": "import", "w": 1 }
+  ]
+}
