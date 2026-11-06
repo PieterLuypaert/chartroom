@@ -10,6 +10,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { askClaude, stopAll } from "./claude.js";
 import { detailsOf, levelOf, readChart } from "../mods/chartroom/model.js";
+import { explainKey } from "../mods/chartroom/find.js";
 
 const ASK_TOOLS = ["Read", "Grep", "Glob"];
 // How much of the chart goes along, and how many answers a project keeps.
@@ -17,6 +18,10 @@ const MAX_PARTS = 150;
 const MAX_FILES = 80;
 const MAX_CARDS = 8;
 const KEPT = 20;
+
+// What a card picked is explained with, on a faster model, kept per card until the chart changes.
+export const EXPLAIN = "Explain this card to its owner: what it does for the app and the people who use it, how it works in a few steps, what it relies on and what relies on it, and anything to watch out for. At most about 120 words.";
+const EXPLAIN_MODEL = process.env.CHARTROOM_DESCRIBE_MODEL || "sonnet";
 
 const text = { type: "string" };
 export const ASK_SCHEMA = { type: "object", required: ["answer", "cards"], properties: { answer: text, cards: { type: "array", items: text } } };
@@ -87,13 +92,15 @@ async function prune(dir) {
 
 async function main() {
   const [folder, id, payload] = process.argv.slice(2);
-  if (!folder || !/^\d+$/.test(id ?? "") || !payload) throw new Error("usage: bun draw/ask.js <folder> <id> '<question as JSON>'");
-  const { question, card = null, focus = null } = JSON.parse(payload);
-  const dir = join(folder, ".chartroom", "asks");
+  if (!folder || !/^[0-9a-f]+$/.test(id ?? "") || !payload) throw new Error("usage: bun draw/ask.js <folder> <id> '<question as JSON>'");
+  const { question: asked, card = null, focus = null, explain = false } = JSON.parse(payload);
+  if (explain && (!card || id !== explainKey(card))) throw new Error("an explanation is kept under its card's key");
+  const question = explain ? EXPLAIN : asked;
+  const dir = join(folder, ".chartroom", explain ? "explains" : "asks");
   const path = join(dir, `${id}.json`);
   await mkdir(dir, { recursive: true });
   await writeFile(join(folder, ".chartroom", ".gitignore"), "*\n");
-  const record = { id, question, card, focus, status: "asking", pid: process.pid, startedAt: new Date().toISOString() };
+  const record = { id, question, card, focus, explain, status: "asking", pid: process.pid, startedAt: new Date().toISOString() };
   await writeWhole(path, record);
   process.on("SIGTERM", async () => {
     stopAll();
@@ -102,14 +109,14 @@ async function main() {
   });
   try {
     const chart = await chartIn(folder);
-    const answer = await askClaude({ cwd: folder, prompt: askPrompt(chart, { question, card, focus }), schema: ASK_SCHEMA, tools: ASK_TOOLS });
-    await writeWhole(path, { ...record, status: "done", ...checkAnswer(chart, answer), endedAt: new Date().toISOString() });
+    const answer = await askClaude({ cwd: folder, prompt: askPrompt(chart, { question, card, focus }), schema: ASK_SCHEMA, tools: ASK_TOOLS, model: explain ? EXPLAIN_MODEL : null });
+    await writeWhole(path, { ...record, status: "done", chart: chart.meta.generatedAt ?? null, ...checkAnswer(chart, answer), endedAt: new Date().toISOString() });
   } catch (error) {
     console.error(error);
     await writeWhole(path, { ...record, status: "failed", error: error.message, endedAt: new Date().toISOString() });
     process.exitCode = 1;
   } finally {
-    await prune(dir);
+    if (!explain) await prune(dir);
   }
 }
 
