@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chartedFrom, FIND_CHARTS, FIND_MAP, mapFrom, START_DRAW, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksFrom, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -98,5 +98,29 @@ describe("START_DRAW and STOP_DRAW", () => {
 
   test("STOP_DRAW leaves a pid that is no drawing alone", () => {
     expect(sh(STOP_DRAW, stale)).toMatchObject({ code: 1, stderr: "no drawing runs there\n" });
+  });
+});
+
+describe("asks", () => {
+  const asked = project("buoy", {});
+  const asks = join(asked, ".chartroom", "asks");
+
+  test("START_ASK starts the question in the background, and FIND_ASKS reads the answers newest first", async () => {
+    const asker = join(home, "asker", "draw", "ask.js");
+    write(asker, 'import { mkdirSync, writeFileSync } from "node:fs"; const [folder, id, q] = process.argv.slice(2); writeFileSync(`${folder}/.chartroom/asks/${id}.json`, JSON.stringify({ id, question: JSON.parse(q).question, status: "done" }));');
+    write(join(asks, "1.json"), '{"id":"1",\n"status":"done"}');
+    Bun.spawnSync(["touch", "-t", "202001010000", join(asks, "1.json")]);
+    write(join(asks, "notes.txt"), "not an answer");
+    expect(sh(START_ASK, asked, asker, "2", JSON.stringify({ question: "Why?" }))).toMatchObject({ code: 0, stdout: "started\n" });
+    for (let tries = 0; tries < 50 && !existsSync(join(asks, "2.json")); tries += 1) await Bun.sleep(100);
+    expect(asksFrom(sh(FIND_ASKS, asked).stdout).map((one) => [one.id, one.question])).toEqual([["2", "Why?"], ["1", undefined]]);
+  });
+
+  test("asksFrom leaves out a line that is not an answer yet", () => {
+    expect(asksFrom('{"id":"3"}\n{"id":\n\n')).toEqual([{ id: "3" }]);
+  });
+
+  test("STOP_ASK leaves a pid that is no question alone", () => {
+    expect(sh(STOP_ASK, String(process.pid))).toMatchObject({ code: 1, stderr: "that question is answered already\n" });
   });
 });

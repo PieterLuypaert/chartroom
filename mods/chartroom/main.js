@@ -8,12 +8,12 @@
 // selected} it is the Chartroom full size, in a tab of its own, on the project and level the panel
 // was showing.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
-import { detailsOf, levelOf, projectsOf, readChart } from "./model.js";
+import { cardIdOn, detailsOf, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView } from "./chart.js";
-import { chartedFrom, FIND_CHARTS, FIND_MAP, mapFrom, START_DRAW, STOP_DRAW } from "./find.js";
+import { asksFrom, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
@@ -56,6 +56,8 @@ const ZOOM_STEP = 1.2;
 // bigger than this is laid out plainly. Levels one click away are laid out ahead, this many at once.
 const MAX_LAY_ARG = 400 * 1024;
 const MAX_AHEAD = 12;
+// While a question is being answered, its answer is looked for this often.
+const ASK_POLL_MS = 1500;
 // A press that moves this far is a drag of the chart, not a click on a card. The chart moves
 // freely every way, as long as this much of it stays in view.
 const DRAG_STEP = 4;
@@ -123,6 +125,19 @@ export default class Chartroom extends View {
     this.hasSize = false;
     // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
     Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
+    // Questions: the answers of the project showing, the one an answer was asked for and waits on,
+    // the one shown on the chart, and the field to ask in.
+    Object.assign(this, { asks: [], asksFolder: null, waitingFor: null, shownAnswer: null, isTyping: false });
+    this.question = InputState.new({ placeholder: "What does it do? What breaks if it goes?" });
+    this.question.on("submit", (_e, cx) => this.ask(cx));
+    this.question.on("focus", (_e, cx) => {
+      this.isTyping = true;
+      cx.notify();
+    });
+    this.question.on("blur", (_e, cx) => {
+      this.isTyping = false;
+      cx.notify();
+    });
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
@@ -216,6 +231,111 @@ export default class Chartroom extends View {
     if (found.kind === "none") Object.assign(this, { chart: null, text: null });
     else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length, cx);
     this.watch(place, cx);
+    if (this.folder !== this.asksFolder) this.loadAsks(cx);
+  }
+
+  async close() {
+    this.question?.release();
+  }
+
+  // The project's latest answers, read again while one is still being answered. The answer asked
+  // for last lights its cards when it comes.
+  loadAsks(cx) {
+    const folder = this.folder;
+    this.asksFolder = folder;
+    if (!folder || this.place?.on) {
+      this.asks = [];
+      return;
+    }
+    cx.spawn(async (cx) => {
+      try {
+        const result = await exec("sh", ["-c", FIND_ASKS, "asks", folder]);
+        if (this.folder !== folder) return;
+        this.asks = asksFrom(result.stdout);
+        const answered = this.asks.find((one) => one.id === this.waitingFor && one.status !== "asking");
+        if (answered) {
+          this.waitingFor = null;
+          if (answered.status === "done") this.shownAnswer = answered.id;
+        }
+        if (this.asks.some((one) => one.status === "asking")) cx.timer.after(ASK_POLL_MS, (cx) => this.loadAsks(cx));
+      } catch (error) {
+        console.log(`chartroom: the answers in ${folder} could not be read: ${error.message ?? error}`);
+      }
+      cx.notify();
+    });
+  }
+
+  // Asks the project's own Claude about the card picked, or the level, in the background.
+  ask(cx) {
+    const question = this.question.value().trim();
+    const folder = this.folder;
+    if (!question || !this.chart || !folder || this.place?.on) return;
+    const { selected: card, focus } = this;
+    const id = String(Date.now());
+    this.question.set_value("");
+    this.asks = [{ id, question, card, focus, status: "asking" }, ...this.asks];
+    this.waitingFor = id;
+    cx.spawn(async (cx) => {
+      try {
+        const started = await exec("sh", ["-c", START_ASK, "ask", folder, await this.script("ask.js"), id, JSON.stringify({ question, card, focus })]);
+        if (started.code !== 0) throw new Error(started.stderr.trim() || `starting it ended with ${started.code}`);
+        cx.timer.after(ASK_POLL_MS, (cx) => this.loadAsks(cx));
+      } catch (error) {
+        this.asks = this.asks.map((one) => (one.id === id ? { ...one, status: "failed", error: error.message ?? String(error) } : one));
+      }
+      cx.notify();
+    });
+    cx.notify();
+  }
+
+  stopAsk(one, cx) {
+    if (!one.pid) return;
+    cx.spawn(async (cx) => {
+      const stopped = await exec("sh", ["-c", STOP_ASK, "stop", String(one.pid)]);
+      if (stopped.code !== 0) console.log(`chartroom: ${stopped.stderr.trim()}`);
+      this.loadAsks(cx);
+    });
+  }
+
+  // Lights the cards an answer is about, or puts them out again.
+  showAnswer(one, cx) {
+    this.shownAnswer = this.shownAnswer === one.id ? null : one.id;
+    cx.notify();
+  }
+
+  // The cards on this level the answer shown is about.
+  lighted() {
+    const one = this.asks.find((ask) => ask.id === this.shownAnswer);
+    if (!one?.cards?.length || !this.chart) return new Set();
+    return new Set(one.cards.map((ref) => cardIdOn(this.chart, this.focus, ref)).filter(Boolean));
+  }
+
+  // What the field asks about, and what each answer was about, in words.
+  labelOf(card, focus) {
+    if (card) return this.cardLabel(card) ?? "this card";
+    return focus ? this.chart?.nodes.get(focus)?.label ?? "this part" : this.chart?.name ?? "this app";
+  }
+
+  cardLabel(ref) {
+    if (ref?.startsWith("n:")) return this.chart?.nodes.get(ref.slice(2))?.label ?? null;
+    if (ref?.startsWith("f:")) return this.chart?.files.get(ref.slice(2))?.name ?? ref.slice(2);
+    return null;
+  }
+
+  askView() {
+    const canAsk = Boolean(this.folder) && !this.place?.on;
+    return {
+      field: this.question,
+      isTyping: this.isTyping,
+      canAsk,
+      reason: this.place?.on ? "Asking about a chart needs the project on this computer." : "",
+      subject: this.labelOf(this.selected, this.focus),
+      asks: this.asks.slice(0, 8).map((one) => ({ ...one, cardLabel: one.card ? this.cardLabel(one.card) : null })),
+      shownId: this.shownAnswer,
+      onAsk: (cx) => this.ask(cx),
+      onShow: (one, cx) => this.showAnswer(one, cx),
+      onStop: (one, cx) => this.stopAsk(one, cx),
+    };
   }
 
   show(folder, text, length, cx) {
@@ -644,6 +764,14 @@ export default class Chartroom extends View {
   }
 
   onKey(e, cx) {
+    // Keys typed into the question are the question's; esc leaves it.
+    if (this.isTyping) {
+      if (e.key === "escape") {
+        this.handle.focus();
+        cx.stop_propagation();
+      }
+      return;
+    }
     const m = e.modifiers ?? {};
     if (m.platform || m.control || m.alt) return;
     if (this.isPicking ? this.pickerKey(e.key, cx) : this.chartKey(e.key, cx)) {
@@ -678,6 +806,7 @@ export default class Chartroom extends View {
     else if (k === "f" && !isTab()) this.openFullSize();
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
+    else if (view && k === "a" && this.folder && !this.place?.on) this.question.focus();
     else if (view?.laid && (k === "-" || k === "=" || k === "+")) this.zoomTo(this.zoomNow() * (k === "-" ? 1 / ZOOM_STEP : ZOOM_STEP), cx);
     else if (view?.laid && k === "0") this.zoomTo(null, cx);
     else return false;
@@ -807,7 +936,7 @@ export default class Chartroom extends View {
     const details = this.selected ? detailsOf(view.level, this.selected) : null;
     const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
-    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) });
+    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView() });
     const body = isWide ? h_flex() : v_flex();
     const isDragging = Boolean(this.drag && this.didDrag);
     // The chart is a map to move around: dragged anywhere, a card too, or moved with the wheel.
@@ -841,7 +970,7 @@ export default class Chartroom extends View {
     const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
     return v_flex()
       .when(Boolean(view.note), (el) => el.child(div().px(16).pt(8).text_size(11.5).text_color(t.dim).child(view.note)))
-      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
+      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
   }
 
   // Over the chart in a wide view: what this level is, what it is called, and what it does.
@@ -913,6 +1042,7 @@ export default class Chartroom extends View {
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");
+    if (this.folder && !this.place?.on) keys.push("a ask");
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
     if (!isTab()) keys.push("f full size");
     return [...keys, ...close].join("  ·  ");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { detailsOf, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
+import { cardIdOn, detailsOf, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -125,5 +125,19 @@ describe("projectsOf", () => {
     const projects = projectsOf(spaces, ["/code/harbour", "/code/tide-tables"]);
     expect(projects.map((one) => one.folder)).toEqual(["/code/tide-tables", "/code/tide-tables", "/code/harbour"]);
     expect(projects.at(-1)).toEqual({ label: "harbour", folder: "/code/harbour", on: null, space: null, key: ":/code/harbour" });
+  });
+});
+
+describe("cardIdOn", () => {
+  test("finds the card a part or file shows as on a level", () => {
+    expect(cardIdOn(chart, null, "f:api/src/store/db.ts")).toBe("n:api");
+    expect(cardIdOn(chart, "api", "f:api/src/store/db.ts")).toBe("n:api.store");
+    expect(cardIdOn(chart, "api.store", "f:api/src/store/db.ts")).toBe("f:api/src/store/db.ts");
+    expect(cardIdOn(chart, "api", "n:site.pages")).toBe("n:site");
+  });
+
+  test("is nothing for what the chart does not have", () => {
+    expect(cardIdOn(chart, null, "f:nowhere.ts")).toBeNull();
+    expect(cardIdOn(chart, null, "n:gone")).toBeNull();
   });
 });
