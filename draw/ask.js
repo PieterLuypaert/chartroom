@@ -13,11 +13,13 @@ import { detailsOf, levelOf, readChart } from "../mods/chartroom/model.js";
 import { explainKey } from "../mods/chartroom/find.js";
 
 const ASK_TOOLS = ["Read", "Grep", "Glob"];
-// How much of the chart goes along, and how many answers a project keeps.
+// How much of the chart goes along, and how many answers are kept: each card's and each level's
+// newest, as many as the panel lists for one, and at most KEPT in all.
 const MAX_PARTS = 150;
 const MAX_FILES = 80;
 const MAX_CARDS = 8;
-const KEPT = 20;
+export const KEPT_EACH = 8;
+export const KEPT = 200;
 
 // What a card picked is explained with, on a faster model, kept per card until the chart changes.
 export const EXPLAIN = "Explain this card to its owner: what it does for the app and the people who use it, how it works in a few steps, what it relies on and what relies on it, and anything to watch out for. At most about 120 words.";
@@ -82,10 +84,28 @@ async function writeWhole(path, value) {
   await rename(`${path}.tmp`, path);
 }
 
-// Only the latest answers stay: their ids are when they were asked.
+// What an answer was asked about, as the panel lists it: its card, or with none its level. A file
+// that cannot be read is a subject of its own, so it is never taken for another's.
+async function subjectOf(path) {
+  try {
+    const { card = null, focus = null } = JSON.parse(await readFile(path, "utf8"));
+    return card ? `card ${card}` : `level ${focus ?? ""}`;
+  } catch (error) {
+    console.error(`chartroom: ${path} is kept, as it could not be read: ${error.message}`);
+    return `unread ${path}`;
+  }
+}
+
+// Only the newest answers stay, their ids being when they were asked: KEPT_EACH per card and per
+// level, and KEPT in all, so asking about one card never pushes another's out.
 async function prune(dir) {
-  const names = (await readdir(dir)).filter((name) => /^\d+\.json$/.test(name)).sort();
-  for (const name of names.slice(0, Math.max(0, names.length - KEPT))) await rm(join(dir, name), { force: true });
+  const names = (await readdir(dir)).filter((name) => /^\d+\.json$/.test(name)).sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+  const counts = new Map();
+  for (const [index, name] of names.entries()) {
+    const subject = await subjectOf(join(dir, name));
+    counts.set(subject, (counts.get(subject) ?? 0) + 1);
+    if (index >= KEPT || counts.get(subject) > KEPT_EACH) await rm(join(dir, name), { force: true });
+  }
 }
 
 async function main() {

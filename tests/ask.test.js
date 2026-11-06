@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readChart } from "../mods/chartroom/model.js";
-import { askPrompt, checkAnswer } from "../draw/ask.js";
+import { askPrompt, checkAnswer, KEPT, KEPT_EACH } from "../draw/ask.js";
 
 const fixture = join(import.meta.dir, "tide-tables.json");
 const chart = readChart(readFileSync(fixture, "utf8"));
@@ -68,13 +68,31 @@ describe("draw/ask.js", () => {
     expect(record).toMatchObject({ status: "failed", error: expect.stringContaining("Not logged in") });
   });
 
-  test("keeps the latest twenty answers of a project", () => {
+  describe("keeping answers", () => {
     const dir = join(project, ".chartroom", "asks");
-    for (let id = 1; id <= 25; id += 1) writeFileSync(join(dir, `${id}.json`), "{}");
-    ask(2000, { question: "Last one" });
-    const kept = readdirSync(dir).filter((name) => name.endsWith(".json"));
-    expect(kept.length).toBe(20);
-    expect(kept).toContain("2000.json");
+    const kept = () => readdirSync(dir).filter((name) => name.endsWith(".json")).map((name) => parseInt(name, 10)).sort((a, b) => a - b);
+    const put = (ids, about) => ids.forEach((id) => writeFileSync(join(dir, `${id}.json`), JSON.stringify({ id: String(id), status: "done", ...about })));
+    const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const empty = () => readdirSync(dir).forEach((name) => rmSync(join(dir, name)));
+
+    test("keeps each card's and each level's newest eight, so asking about one never pushes another's out", () => {
+      empty();
+      put(range(1, 12), { card: "n:api", focus: null });
+      put(range(13, 15), { card: "n:site", focus: null });
+      put(range(16, 25), { card: null, focus: null });
+      put([26, 27], { card: null, focus: "api" });
+      writeFileSync(join(dir, "28.json"), "{half written");
+      ask(2000, { question: "And the site?", card: "n:site", focus: null });
+      expect(KEPT_EACH).toBe(8);
+      expect(kept()).toEqual([...range(5, 12), 13, 14, 15, ...range(18, 25), 26, 27, 28, 2000]);
+    });
+
+    test("keeps no more than KEPT in all, the newest", () => {
+      empty();
+      range(1, KEPT + 5).forEach((id) => put([id], { card: `n:part-${id}`, focus: null }));
+      ask(9000, { question: "One more", card: "n:api", focus: null });
+      expect(kept()).toEqual([...range(7, KEPT + 5), 9000]);
+    });
   });
 });
 
