@@ -1,13 +1,10 @@
 # Chartroom
 
-An interactive map of a project's code, drawn by the person's own Claude. A **Chartroom** button at the right
-end of the tab bar opens it full size in a tab of its own; a key also opens it as a side panel beside the
-terminals. The chart shows one level of the app at a time: its parts, files and outside services as cards in
-three bands (what uses this level, what is inside it, what it uses), joined by right-angled lines for what
-uses what. Double-click a card to go inside, scroll to zoom, drag to move, or jump with the minimap in the
-bottom-left corner. Beside or under the chart, the details show the picked card, a Claude explanation of it
-and the questions asked about it. When the code has moved on since the chart was drawn, a strip says so and
-offers an update.
+An interactive map of a project's code, drawn and explained by the person's own Claude. Claude names the
+app's parts and describes every file; the chart shows one level at a time, as cards joined by lines for what
+uses what. Claude explains any card and answers questions about a card or a level, lighting the cards it
+names. It only reads the code, on the person's own Claude subscription. A **Chartroom** button in the tab bar
+opens it.
 
 ![Chartroom: the whole app, a part picked with its lines lit and its details beside the chart](preview.png)
 
