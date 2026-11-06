@@ -9,6 +9,8 @@ The panel draws the chart itself, with your own Claude: it reads the code, asks 
 - **The chart**: the parts of the app at the top, and inside any part its parts and files. What uses a card sits above it; the outside cards that use a part sit on top, the outside services it uses at the bottom.
 - **A card's details**: what it does, what it uses and what uses it (with the requests or imports in between), and for a file its endpoints.
 - **Any project**: the focused space's by default, or one picked from every space's project and folders chosen by hand, each marked with whether it has a chart yet.
+- **Full size**: the square in the header (or `f`) opens the Chartroom in a tab of its own, on the same project and level. As any pane, `⌘⇧↵` zooms it, and the window's full screen makes it the whole screen. A wide view fits more cards on a row and puts the details beside the chart.
+- **Smooth**: a level fades in when you go inside a part or back up, a picked card's lines fade in, and the cards glide to their new places when the view is resized.
 - **Drawing and updating**: **Draw the chart** starts it in the background and shows each step as it goes; the header's pen brings it up to date, asking Claude only about the files that changed. It keeps running when the panel closes, and **Stop** ends it.
 
 A project that has a map made by [floorplan](https://github.com/haydenschmitty/floorplan) shows that map until the Chartroom draws its own.
@@ -44,6 +46,7 @@ Needs Bun, and the Claude Code CLI logged in.
 | `p` | the project list | back to the chart |
 | `u` | draw the chart, or bring it up to date | |
 | `s` | stop the drawing | |
+| `f` | the Chartroom full size, in a tab of its own | |
 | `esc` | up a level, or close | back to the chart |
 
 A click picks a card, a double click goes inside it, and the trail under the header leads back up.

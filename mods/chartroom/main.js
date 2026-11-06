@@ -4,7 +4,9 @@
 // the chart itself: it starts draw/draw.js in the background, which reads the code and asks the
 // person's own Claude for the app's parts and a description of every file, and shows how far it
 // is until the chart is there. A map floorplan made shows too. With props {button: true} it is the
-// tab bar's button that opens and closes the panel.
+// tab bar's button that opens and closes the panel; with props {tab: true, project, focus,
+// selected} it is the Chartroom full size, in a tab of its own, on the project and level the panel
+// was showing.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
@@ -35,6 +37,13 @@ const MAX_PICKED = 8;
 const WATCHED = /\/((chart|graph|progress)\.json|pid)$/;
 // The places remembered to come back to, the least recently left forgotten first.
 const MAX_VIEWS = 8;
+// From this wide on, the details sit to the right of the chart instead of under it.
+const WIDE = 900;
+const DETAILS_WIDTH = 340;
+// How long a new level or a card's lines are drawn see-through before they fade in, and how long
+// the lines stay aside while the cards glide to new places (chart.js's GLIDE, and a little more).
+const ENTER_MS = 30;
+const MOVE_MS = 260;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -47,6 +56,9 @@ function find(node, id) {
 
 const panel = () => find(layout(), BLOCK);
 const isShown = () => Boolean(panel()) && panel().hidden !== true;
+const isTab = () => Boolean(props()?.tab);
+// A tab of its own is open whenever it exists; the panel, while its column shows.
+const isOpen = () => isTab() || isShown();
 const baseName = (folder) => folder.slice(folder.lastIndexOf("/") + 1) || folder;
 
 // Where the focused pane is, as the Files and Changes panels find it.
@@ -77,7 +89,8 @@ function store(key, value) {
 export default class Chartroom extends View {
   init(_props, cx) {
     if (props()?.button) return this.passFocus(cx);
-    const pinned = stored(PINNED, null);
+    const asked = props() ?? {};
+    const pinned = stored(PINNED, null) ?? (asked.tab ? asked.project : null);
     this.pinned = typeof pinned?.folder === "string" ? pinned : null;
     this.picked = stored(PICKED, []).filter((folder) => typeof folder === "string");
     this.isPicking = false;
@@ -89,13 +102,16 @@ export default class Chartroom extends View {
     // What each project showed, to come back to: its chart, its drawing, and where in it.
     this.views = new Map();
     this.size = { width: 460, height: 600 };
+    this.hasSize = false;
+    Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
     Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
     this.moveTo(JSON.stringify(this.where()), this.where());
-    this.wasShown = isShown();
+    if (asked.tab) Object.assign(this, { focus: asked.focus ?? null, selected: asked.selected ?? null });
+    this.wasShown = isOpen();
     if (this.wasShown) this.refresh(cx);
     cx.timer.every(READ_MS, (cx) => {
-      if (isShown() && (this.place?.on || !this.chart || this.isDrawing || this.error)) this.refresh(cx);
+      if (isOpen() && (this.place?.on || !this.chart || this.isDrawing || this.error)) this.refresh(cx);
     });
     // pane.go moves onto the panel too ("focusable" in mod.json).
     cx.spawn(async (cx) => {
@@ -160,7 +176,7 @@ export default class Chartroom extends View {
       } finally {
         this.isReading = false;
         if (context === this.context) this.isChecked = true;
-        if ((context !== this.context || this.isStale) && isShown()) this.refresh(cx);
+        if ((context !== this.context || this.isStale) && isOpen()) this.refresh(cx);
         cx.notify();
       }
     });
@@ -172,14 +188,15 @@ export default class Chartroom extends View {
     if (result.code === 3) return this.forget();
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
-    if (found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
+    // Another project than the one showing: its own level and card, not the last one's.
+    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
     Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
     if (found.kind === "none") Object.assign(this, { chart: null, text: null });
-    else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length);
+    else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length, cx);
     this.watch(place, cx);
   }
 
-  show(folder, text, length) {
+  show(folder, text, length, cx) {
     try {
       this.chart = readChart(text);
     } catch (error) {
@@ -188,6 +205,46 @@ export default class Chartroom extends View {
     }
     this.text = text;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
+    this.enter(cx);
+  }
+
+  // A new level fades in: drawn see-through once, then brought up natively (chart.js).
+  enter(cx) {
+    const count = ++this.levelCount;
+    this.isEntering = true;
+    cx.timer.after(ENTER_MS, (cx) => {
+      if (this.levelCount !== count) return;
+      this.isEntering = false;
+      cx.notify();
+    });
+  }
+
+  // The lines of a card just picked fade in the same way.
+  light(cx) {
+    const count = ++this.litCount;
+    this.isLitEntering = true;
+    cx.timer.after(ENTER_MS, (cx) => {
+      if (this.litCount !== count) return;
+      this.isLitEntering = false;
+      cx.notify();
+    });
+  }
+
+  // A new size: the cards glide to their new places, and the lines step aside until they are there.
+  resized(size, cx) {
+    const isChange = this.hasSize && Math.round(size.width) !== Math.round(this.size.width);
+    this.size = size;
+    this.hasSize = true;
+    if (isChange && this.chart) {
+      const count = ++this.moveCount;
+      this.isMoving = true;
+      cx.timer.after(MOVE_MS, (cx) => {
+        if (this.moveCount !== count) return;
+        this.isMoving = false;
+        cx.notify();
+      });
+    }
+    cx.notify();
   }
 
   forget() {
@@ -205,7 +262,7 @@ export default class Chartroom extends View {
       try {
         while (this.watchCount === count) {
           const paths = await watchFolder(dir);
-          if (this.watchCount === count && isShown() && paths.some((path) => path === dir || WATCHED.test(path))) this.refresh(cx);
+          if (this.watchCount === count && isOpen() && paths.some((path) => path === dir || WATCHED.test(path))) this.refresh(cx);
         }
       } catch (error) {
         if (this.watchCount === count) this.watched = null;
@@ -271,12 +328,20 @@ export default class Chartroom extends View {
 
   // The level shown and where its cards go, worked out again only when one of those changes.
   view() {
-    const width = Math.round(this.size.width);
+    const width = this.chartWidth();
     const memo = this.memo;
     if (memo?.chart === this.chart && memo.focus === this.focus && memo.width === width) return memo;
     const level = levelOf(this.chart, this.focus);
     this.memo = { chart: this.chart, focus: this.focus, width, level, laid: layOut(level, width) };
     return this.memo;
+  }
+
+  isWide() {
+    return this.size.width >= WIDE;
+  }
+
+  chartWidth() {
+    return Math.round(this.isWide() ? this.size.width - DETAILS_WIDTH : this.size.width);
   }
 
   cardOf(view, id) {
@@ -285,6 +350,7 @@ export default class Chartroom extends View {
 
   pick(card, isOpening, cx) {
     if (isOpening && card.isOpenable) return this.open(card, cx);
+    if (this.selected !== card.id) this.light(cx);
     this.selected = card.id;
     cx.notify();
   }
@@ -293,6 +359,7 @@ export default class Chartroom extends View {
     if (!card?.isOpenable) return;
     this.focus = card.part;
     this.selected = null;
+    this.enter(cx);
     cx.notify();
   }
 
@@ -304,6 +371,7 @@ export default class Chartroom extends View {
     // A part that is its own parent (a map with a loop in it) leads to the top.
     this.focus = parent === from ? null : parent;
     this.selected = `n:${from}`;
+    this.enter(cx);
     cx.notify();
     return true;
   }
@@ -314,6 +382,7 @@ export default class Chartroom extends View {
     for (let depth = 0; child !== null && depth < 64 && (this.chart.nodes.get(child)?.parent ?? null) !== part; depth += 1) child = this.chart.nodes.get(child)?.parent ?? null;
     this.focus = part;
     this.selected = child === null ? null : `n:${child}`;
+    this.enter(cx);
     cx.notify();
   }
 
@@ -374,6 +443,7 @@ export default class Chartroom extends View {
     store(PINNED, project);
     this.isPicking = false;
     this.refresh(cx);
+    this.enter(cx);
     cx.notify();
   }
 
@@ -390,6 +460,23 @@ export default class Chartroom extends View {
         notify({ title: "Chartroom", body: `The folder picker did not open: ${error.message ?? error}`, level: "error" });
       }
     });
+  }
+
+  // The space a tab for this project goes in: the project's own, else one that starts in its
+  // folder, else the one shown.
+  spaceFor(place) {
+    const list = spaces();
+    return place.space ?? list.find((one) => one.folder === place.cwd && (one.machine ?? null) === place.on)?.id ?? list.find((one) => one.active)?.id ?? null;
+  }
+
+  // The Chartroom full size: a tab of its own in the space, on this project and level. As any
+  // pane, ⌘⇧↵ zooms it, and the window's full screen makes it the whole screen.
+  openFullSize() {
+    const place = this.place;
+    if (!place?.cwd) return;
+    const folder = this.folder ?? place.cwd;
+    const project = this.pinned ?? { folder, on: place.on, label: this.chart?.name ?? baseName(folder) };
+    run("tab.new", { space: this.spaceFor(place), name: "Chartroom", mod: MOD, props: { tab: true, project, focus: this.focus, selected: this.selected } });
   }
 
   hide() {
@@ -418,13 +505,19 @@ export default class Chartroom extends View {
 
   chartKey(k, cx) {
     const view = this.chart ? this.view() : null;
-    if (view && (k === "down" || k === "right")) this.step(view, 1);
-    else if (view && (k === "up" || k === "left")) this.step(view, -1);
+    if (view && (k === "down" || k === "right" || k === "up" || k === "left")) {
+      this.step(view, k === "down" || k === "right" ? 1 : -1);
+      this.light(cx);
+    }
     else if (view && k === "enter") this.open(this.cardOf(view, this.selected), cx);
     else if (view && k === "backspace") this.up(cx);
     else if (k === "escape") {
-      if (!view || !this.up(cx)) this.hide();
+      if (!view || !this.up(cx)) {
+        if (isTab()) return false;
+        this.hide();
+      }
     } else if (k === "p") this.togglePicker(cx);
+    else if (k === "f" && !isTab()) this.openFullSize();
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
     else return false;
@@ -433,7 +526,7 @@ export default class Chartroom extends View {
 
   // Opened by the key or the button: read the chart and take the keyboard.
   watchShown(cx) {
-    const shown = isShown();
+    const shown = isOpen();
     if (shown && !this.wasShown) {
       this.refresh(cx);
       cx.spawn(async () => this.handle.focus());
@@ -445,15 +538,12 @@ export default class Chartroom extends View {
     const t = theme();
     if (props()?.button) return this.button(t);
     this.watchShown(cx);
-    if (isShown() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
+    if (isOpen() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
     const view = this.chart && !this.isPicking ? this.view() : null;
     const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress, this.log) : "";
     const error = this.isPicking ? "" : this.error || failed;
     return v_flex().id("chartroom").track_focus(this.handle).size_full().min_h(0).bg(t.chrome).text_size(13).text_color(t.foreground)
-      .on_size_change((size, cx) => {
-        this.size = size;
-        cx.notify();
-      })
+      .on_size_change((size, cx) => this.resized(size, cx))
       .on_key_down((e, cx) => this.onKey(e, cx))
       .on_mouse_down("left", () => this.handle.focus())
       .child(this.header(t))
@@ -503,7 +593,8 @@ export default class Chartroom extends View {
       .when(this.isReading && Boolean(this.chart), (el) => el.child(svg(`${ICONS}/spinner.svg`).size(13).flex_none().text_color(t.muted).spin(900)))
       .when(canUpdate, (el) => el.child(this.iconButton(t, "redraw", svg(`${ICONS}/square-pen.svg`).size(14),
         this.kind === "chartroom" ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)", (_e, cx) => this.draw(cx))))
-      .child(this.iconButton(t, "hide", svg(`${ICONS}/x.svg`).size(14), "Close (esc)", () => this.hide()));
+      .when(!isTab() && Boolean(this.place?.cwd), (el) => el.child(this.iconButton(t, "full-size", svg(`${ICONS}/square.svg`).size(13), "Full size, in a tab of its own (f)", () => this.openFullSize())))
+      .when(!isTab(), (el) => el.child(this.iconButton(t, "hide", svg(`${ICONS}/x.svg`).size(14), "Close (esc)", () => this.hide())));
   }
 
   // The project charted, with a pin when it was picked rather than followed.
@@ -549,17 +640,22 @@ export default class Chartroom extends View {
       .children(crumbs);
   }
 
+  // The chart, and the details under it, or beside it in a wide view. Nothing is drawn before the
+  // view knows its size, so the cards do not glide in from a guessed one.
   chartBody(t, view) {
     const details = this.selected ? detailsOf(view.level, this.selected) : null;
-    const detailsHeight = Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)));
+    const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
-    const chart = view.laid.cards.length
-      ? chartView({ t, laid: view.laid, selected: this.selected, onPick })
-      : div().px(16).py(12).text_size(12).text_color(t.dim).child("Nothing on this level.");
-    return v_flex().flex_1().min_h(0)
-      .child(div().id("chart").flex_1().min_h(0).overflow_y_scrollbar().child(chart))
-      .child(div().flex_none().h(detailsHeight).border_t(1).border_color(t.border)
-        .child(detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) })));
+    const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
+    const chart = !this.hasSize ? div()
+      : view.laid.cards.length ? chartView({ t, laid: view.laid, selected: this.selected, onPick, ...motion })
+        : div().px(16).py(12).text_size(12).text_color(t.dim).child("Nothing on this level.");
+    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) });
+    const body = isWide ? h_flex() : v_flex();
+    return body.flex_1().min_h(0).min_w(0)
+      .child(div().id("chart").flex_1().min_h(0).min_w(0).overflow_y_scrollbar().child(chart))
+      .when(isWide, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
+      .when(!isWide, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
   }
 
   // No chart to show: no folder, still looking, or a project not charted yet, with how its last
@@ -587,13 +683,15 @@ export default class Chartroom extends View {
   // Only the keys that do something here.
   hints(view) {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
-    if (this.isDrawing && !view) return `${stepWords(this.progress)}  ·  s stop  ·  esc close`;
-    if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", "esc close"].filter(Boolean).join("  ·  ");
+    const close = isTab() ? [] : ["esc close"];
+    if (this.isDrawing && !view) return [stepWords(this.progress), "s stop", ...close].join("  ·  ");
+    if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", ...close].filter(Boolean).join("  ·  ");
     const card = this.cardOf(view, this.selected);
     const keys = ["↑↓ pick"];
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
-    return [...keys, "esc close"].join("  ·  ");
+    if (!isTab()) keys.push("f full size");
+    return [...keys, ...close].join("  ·  ");
   }
 }
