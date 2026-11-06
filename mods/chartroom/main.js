@@ -1,35 +1,40 @@
-// The Chartroom in the Herdr app: the map floorplan draws of a project, one level at a time, as
-// cards with the lines between them, in a panel on the right of the window. The project is the
-// focused space's, or one picked from the list of every space's project and folders chosen by
-// hand. Its map is floorplan/graph.json in the project's folder or the nearest folder above it, read
-// again whenever floorplan writes it. With props {button: true} it is the tab bar's button that
-// opens and closes the panel.
+// The Chartroom in the Herdr app: a chart of a project's code, one level at a time, as cards with
+// the lines between them, in a panel on the right of the window. The project is the focused
+// space's, or one picked from every space's project and folders chosen by hand. The panel draws
+// the chart itself: it starts draw/draw.js in the background, which reads the code and asks the
+// person's own Claude for the app's parts and a description of every file, and shows how far it
+// is until the chart is there. A map floorplan made shows too. With props {button: true} it is the
+// tab bar's button that opens and closes the panel.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, focused, home, knownAgents, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder, window as appWindow } from "herdr";
+import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
 import { detailsOf, levelOf, projectsOf, readChart } from "./model.js";
 import { layOut } from "./layout.js";
 import { chartView, detailsView } from "./chart.js";
-import { chartedFrom, FIND_CHARTS, FIND_MAP } from "./find.js";
+import { chartedFrom, FIND_CHARTS, FIND_MAP, mapFrom, START_DRAW, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
+import { endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
 // The layout block the panel lives in, and the tab bar's button: install.sh adds both.
 const BLOCK = "chartroom";
 const BUTTON = "chartroom-button";
+const MOD = "chartroom";
 const ICONS = "mods/workspace-chrome";
-// While shown, how often a map on another machine (which cannot be watched) is read again, and
-// how often the project is looked in again while it has no map yet.
+// While shown, how often a chart on another machine (which cannot be watched) is read again, and
+// how often the project is looked in again while it has no chart or is being drawn.
 const READ_MS = 15000;
-// What a new Claude tab is asked, to draw the map or to bring it up to date.
-const DRAW_TASK = "Make me a floorplan of this app.";
-const UPDATE_TASK = "Update the floorplan.";
-// exec hands back at most 8 MiB, so a bigger map arrives cut short.
+// exec hands back at most 8 MiB, so a bigger chart arrives cut short.
 const MAX_OUTPUT = 8 * 1024 * 1024;
 // Kept in localStorage: the project picked (null: follow the focused space), and the folders
 // chosen by hand, the latest first.
 const PINNED = "pinned";
 const PICKED = "picked";
 const MAX_PICKED = 8;
+// The files whose change means the chart or the drawing's progress is new.
+// The pid goes when a drawing ends, so its end shows at once.
+const WATCHED = /\/((chart|graph|progress)\.json|pid)$/;
+// The places remembered to come back to, the least recently left forgotten first.
+const MAX_VIEWS = 8;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -77,19 +82,20 @@ export default class Chartroom extends View {
     this.picked = stored(PICKED, []).filter((folder) => typeof folder === "string");
     this.isPicking = false;
     this.cursor = 0;
-    // Each project's map folder as FIND_CHARTS last said, by project key.
+    // Each project's chart folder as FIND_CHARTS last said, by project key.
     this.charted = new Map();
     this.context = null;
     this.place = null;
-    // What each project showed, to come back to: its map and where in it.
+    // What each project showed, to come back to: its chart, its drawing, and where in it.
     this.views = new Map();
     this.size = { width: 460, height: 600 };
     this.handle = cx.focus_handle();
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
     this.moveTo(JSON.stringify(this.where()), this.where());
     this.wasShown = isShown();
     if (this.wasShown) this.refresh(cx);
     cx.timer.every(READ_MS, (cx) => {
-      if (isShown() && (this.place?.on || !this.chart)) this.refresh(cx);
+      if (isShown() && (this.place?.on || !this.chart || this.isDrawing || this.error)) this.refresh(cx);
     });
     // pane.go moves onto the panel too ("focusable" in mod.json).
     cx.spawn(async (cx) => {
@@ -112,27 +118,40 @@ export default class Chartroom extends View {
     return this.pinned ? { cwd: this.pinned.folder, on: this.pinned.on ?? null, space: null } : location();
   }
 
+  // A place seen before comes back as it was left. A new one keeps what shows until its read says
+  // whether it is the same project (a cd inside it keeps the level and the card picked) or another.
   moveTo(context, place) {
-    if (this.context) this.views.set(this.context, { folder: this.folder, chart: this.chart, text: this.text, focus: this.focus, selected: this.selected });
+    if (this.context) this.remember();
     const view = this.views.get(context);
     this.context = context;
     this.place = place;
-    this.folder = view?.folder ?? null;
-    this.chart = view?.chart ?? null;
-    this.text = view?.text ?? null;
-    this.focus = view?.focus ?? null;
-    this.selected = view?.selected ?? null;
     this.error = "";
-    this.isChecked = Boolean(view);
+    // A new count ends the watch of the place left; the next read watches this one's.
+    this.watchCount = (this.watchCount ?? 0) + 1;
     this.watched = null;
+    if (view) Object.assign(this, view, { isChecked: true });
+    else this.isChecked = Boolean(this.chart);
+  }
+
+  remember() {
+    this.views.delete(this.context);
+    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value);
   }
 
   refresh(cx) {
     const place = this.where();
     const context = JSON.stringify(place);
     if (context !== this.context) this.moveTo(context, place);
-    if (!place.cwd || this.isReading) return;
+    if (!place.cwd) return;
+    // Asked again while reading: read once more when this read is done, as what changed may have
+    // changed after this read looked.
+    if (this.isReading) {
+      this.isStale = true;
+      return;
+    }
     this.isReading = true;
+    this.isStale = false;
     cx.spawn(async (cx) => {
       try {
         await this.read(context, place, cx);
@@ -141,7 +160,7 @@ export default class Chartroom extends View {
       } finally {
         this.isReading = false;
         if (context === this.context) this.isChecked = true;
-        else if (isShown()) this.refresh(cx);
+        if ((context !== this.context || this.isStale) && isShown()) this.refresh(cx);
         cx.notify();
       }
     });
@@ -151,13 +170,12 @@ export default class Chartroom extends View {
     const result = await exec("sh", ["-c", FIND_MAP, "find", place.cwd], { on: place.on });
     if (context !== this.context) return;
     if (result.code === 3) return this.forget();
-    if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for floorplan/graph.json ended with ${result.code}`);
-    const cut = result.stdout.indexOf("\n");
-    const folder = result.stdout.slice(0, cut);
-    const text = result.stdout.slice(cut + 1);
-    if (text !== this.text) this.show(folder, text, result.stdout.length);
-    this.folder = folder;
-    this.error = "";
+    if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
+    const found = mapFrom(result.stdout);
+    if (found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
+    Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
+    if (found.kind === "none") Object.assign(this, { chart: null, text: null });
+    else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length);
     this.watch(place, cx);
   }
 
@@ -165,7 +183,7 @@ export default class Chartroom extends View {
     try {
       this.chart = readChart(text);
     } catch (error) {
-      if (length >= MAX_OUTPUT * 0.9) throw new Error(`${folder}/floorplan/graph.json is bigger than the 8 MiB the Chartroom reads`);
+      if (length >= MAX_OUTPUT * 0.9) throw new Error(`the chart in ${folder} is bigger than the 8 MiB the Chartroom reads`);
       throw error;
     }
     this.text = text;
@@ -173,27 +191,81 @@ export default class Chartroom extends View {
   }
 
   forget() {
-    this.folder = null;
-    this.chart = null;
-    this.text = null;
-    this.error = "";
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
   }
 
-  // Reads the map again when floorplan writes it. A map on another machine is read on the timer.
+  // Reads again when the chart or the drawing's progress changes: in .chartroom while the panel's
+  // own chart is drawn or shown, in floorplan/ for floorplan's. Another machine's is read on the timer.
   watch(place, cx) {
-    const dir = `${this.folder}/floorplan`;
+    const dir = `${this.folder}/${this.kind === "floorplan" && !this.isDrawing ? "floorplan" : ".chartroom"}`;
     if (place.on || this.watched === dir) return;
     this.watched = dir;
+    const count = ++this.watchCount;
     cx.spawn(async (cx) => {
       try {
-        while (this.watched === dir) {
+        while (this.watchCount === count) {
           const paths = await watchFolder(dir);
-          if (this.watched === dir && isShown() && paths.some((path) => path === dir || path.endsWith("/graph.json"))) this.refresh(cx);
+          if (this.watchCount === count && isShown() && paths.some((path) => path === dir || WATCHED.test(path))) this.refresh(cx);
         }
       } catch (error) {
-        if (this.watched === dir) this.watched = null;
+        if (this.watchCount === count) this.watched = null;
         console.log(`chartroom: stopped watching ${dir}: ${error}`);
       }
+    });
+  }
+
+  // The checkout this mod is linked from (install.sh links it), whose draw/ draws the charts.
+  async drawScript() {
+    if (this.script) return this.script;
+    const result = await exec("sh", ["-c", 'cd "$1" && pwd -P', "where", `${appHome()}/mods/${MOD}`]);
+    const folder = result.stdout.trim();
+    if (result.code !== 0 || !folder.endsWith("/mods/chartroom")) throw new Error("the Chartroom draws charts from its checkout: link the mod with install.sh");
+    this.script = `${folder.slice(0, -"/mods/chartroom".length)}/draw/draw.js`;
+    return this.script;
+  }
+
+  // Draws the project's chart in the background, or brings the Chartroom's own chart up to date.
+  // A project with no chart yet is drawn from the top of its repository.
+  // Starts once, however often it is asked while starting; START_DRAW and the drawing itself refuse
+  // a second drawing of a folder too. What it learns lands only on the project it started for.
+  draw(cx) {
+    const place = this.place;
+    if (!place?.cwd || this.isDrawing || this.isStarting) return;
+    if (place.on) return notify({ title: "Chartroom", body: "Drawing a chart needs the project on this computer.", level: "warning" });
+    const isUpdate = this.kind === "chartroom";
+    const context = this.context;
+    this.isStarting = true;
+    cx.spawn(async (cx) => {
+      try {
+        const script = await this.drawScript();
+        let folder = this.kind === "none" && !this.folder ? null : this.folder;
+        if (!folder) {
+          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: place.cwd });
+          folder = top.code === 0 ? top.stdout.trim() : place.cwd;
+        }
+        const started = await exec("sh", ["-c", START_DRAW, "draw", folder, script, isUpdate ? "--update" : ""]);
+        if (started.code !== 0) throw new Error(started.stderr.trim() || `starting it ended with ${started.code}`);
+        // Read again once the drawing reports, not before: it may not have said it runs yet.
+        if (this.context === context) {
+          Object.assign(this, { folder, isDrawing: true, progress: { step: "scan", done: 0, total: 0 } });
+          this.watch(place, cx);
+        }
+      } catch (error) {
+        notify({ title: "Chartroom", body: `The chart could not be drawn: ${error.message ?? error}`, level: "error" });
+      } finally {
+        this.isStarting = false;
+      }
+      cx.notify();
+    });
+  }
+
+  stop(cx) {
+    if (!this.isDrawing || !this.folder) return;
+    const folder = this.folder;
+    cx.spawn(async (cx) => {
+      const stopped = await exec("sh", ["-c", STOP_DRAW, "stop", folder], { on: this.place?.on });
+      if (stopped.code !== 0) notify({ title: "Chartroom", body: `The drawing in ${folder} did not stop: ${stopped.stderr.trim() || "it may have ended already"}`, level: "warning" });
+      this.refresh(cx);
     });
   }
 
@@ -228,7 +300,9 @@ export default class Chartroom extends View {
   up(cx) {
     if (this.focus === null) return false;
     const from = this.focus;
-    this.focus = this.chart.nodes.get(from)?.parent ?? null;
+    const parent = this.chart.nodes.get(from)?.parent ?? null;
+    // A part that is its own parent (a map with a loop in it) leads to the top.
+    this.focus = parent === from ? null : parent;
     this.selected = `n:${from}`;
     cx.notify();
     return true;
@@ -237,7 +311,7 @@ export default class Chartroom extends View {
   // Back to a level on the trail, with the part on the way down from it picked.
   goTo(part, cx) {
     let child = this.focus;
-    while (child !== null && (this.chart.nodes.get(child)?.parent ?? null) !== part) child = this.chart.nodes.get(child)?.parent ?? null;
+    for (let depth = 0; child !== null && depth < 64 && (this.chart.nodes.get(child)?.parent ?? null) !== part; depth += 1) child = this.chart.nodes.get(child)?.parent ?? null;
     this.focus = part;
     this.selected = child === null ? null : `n:${child}`;
     cx.notify();
@@ -267,7 +341,7 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  // Asks each machine which of its projects have a map, all of a machine's projects at once.
+  // Asks each machine which of its projects have a chart, all of a machine's projects at once.
   checkCharts(cx) {
     const byMachine = new Map();
     for (const project of this.projects()) {
@@ -278,7 +352,7 @@ export default class Chartroom extends View {
       cx.spawn(async (cx) => {
         try {
           const result = await exec("sh", ["-c", FIND_CHARTS, "find", ...projects.map((project) => project.folder)], { on });
-          if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for maps ended with ${result.code}`);
+          if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for charts ended with ${result.code}`);
           const found = chartedFrom(result.stdout);
           for (const project of projects) this.charted.set(project.key, { map: found.get(project.folder) ?? null, error: null });
         } catch (error) {
@@ -318,42 +392,6 @@ export default class Chartroom extends View {
     });
   }
 
-  // The space a new Claude tab for this project goes in: the project's own, else one that starts
-  // in its folder, else the one shown.
-  spaceFor(place) {
-    const list = spaces();
-    return place.space ?? list.find((one) => one.folder === place.cwd && (one.machine ?? null) === place.on)?.id ?? list.find((one) => one.active)?.id ?? null;
-  }
-
-  // A new Claude tab, asked to draw the project's map, or to bring it up to date. Without a map
-  // yet it starts at the top of the project's repository.
-  draw(cx) {
-    const place = this.place;
-    if (!place?.cwd) return;
-    const task = this.chart ? UPDATE_TASK : DRAW_TASK;
-    cx.spawn(async () => {
-      try {
-        let folder = this.folder;
-        if (!folder) {
-          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: place.cwd, on: place.on });
-          folder = top.code === 0 ? top.stdout.trim() : place.cwd;
-        }
-        const claude = (await knownAgents({ on: place.on })).find((agent) => agent.run?.[0] === "claude");
-        run("tab.new", { space: this.spaceFor(place), folder, name: "chart", argv: claude?.run ?? ["claude"], task });
-      } catch (error) {
-        notify({ title: "Chartroom", body: `Claude did not start: ${error.message ?? error}`, level: "error" });
-      }
-    });
-  }
-
-  // floorplan's own map, with its questions and its walkthroughs, in the browser.
-  openInBrowser() {
-    if (!this.folder || this.place?.on) return;
-    const page = `${this.folder}/floorplan/index.html`;
-    exec(appWindow()?.platform === "macos" ? "open" : "xdg-open", [page])
-      .catch((error) => notify({ title: "Chartroom", body: `${page} did not open: ${error.message ?? error}`, level: "error" }));
-  }
-
   hide() {
     const pane = focused()?.pane;
     run("layout.hide", { id: BLOCK });
@@ -387,13 +425,13 @@ export default class Chartroom extends View {
     else if (k === "escape") {
       if (!view || !this.up(cx)) this.hide();
     } else if (k === "p") this.togglePicker(cx);
-    else if (k === "o") this.openInBrowser();
     else if (k === "u") this.draw(cx);
+    else if (k === "s") this.stop(cx);
     else return false;
     return true;
   }
 
-  // Opened by the key or the button: read the map and take the keyboard.
+  // Opened by the key or the button: read the chart and take the keyboard.
   watchShown(cx) {
     const shown = isShown();
     if (shown && !this.wasShown) {
@@ -409,6 +447,8 @@ export default class Chartroom extends View {
     this.watchShown(cx);
     if (isShown() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
     const view = this.chart && !this.isPicking ? this.view() : null;
+    const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress, this.log) : "";
+    const error = this.isPicking ? "" : this.error || failed;
     return v_flex().id("chartroom").track_focus(this.handle).size_full().min_h(0).bg(t.chrome).text_size(13).text_color(t.foreground)
       .on_size_change((size, cx) => {
         this.size = size;
@@ -418,11 +458,19 @@ export default class Chartroom extends View {
       .on_mouse_down("left", () => this.handle.focus())
       .child(this.header(t))
       .when(Boolean(view), (el) => el.child(this.trail(t, view.level)))
-      .when(Boolean(this.error) && !this.isPicking, (el) => el.child(div().flex_none().px(16).py(6).text_size(12).line_height("17px").text_color(t.blocked).child(this.error)))
-      .child(this.isPicking ? this.picker(t) : view ? this.body(t, view) : this.empty(t))
+      .when(Boolean(view) && this.isDrawing, (el) => el.child(updateStrip({ t, progress: this.progress, onStop: (cx) => this.stop(cx) })))
+      .when(Boolean(error), (el) => el.child(div().flex_none().px(16).py(6).text_size(12).line_height("17px").text_color(t.blocked).child(error)))
+      .child(this.body(t, view))
       // As the status bar beside it.
       .child(h_flex().flex_none().h(28).px(14).items_center().border_t(1).border_color(t.border).text_size(11.8).text_color(t.dim)
         .child(div().truncate().child(this.hints(view))));
+  }
+
+  body(t, view) {
+    if (this.isPicking) return this.picker(t);
+    if (view) return this.chartBody(t, view);
+    if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
+    return this.empty(t);
   }
 
   // The tab bar's button, drawn as the tab bar draws Files and Changes, in the tab bar's row; the
@@ -447,15 +495,14 @@ export default class Chartroom extends View {
   // As the Changes panel's header, in line with the tab bar: its name, the project it charts (a
   // button to pick another), and its buttons.
   header(t) {
-    const canBrowse = Boolean(this.folder) && !this.place?.on && !this.isPicking;
+    const canUpdate = Boolean(this.chart) && !this.isDrawing && !this.isPicking && !this.place?.on;
     return h_flex().h(42).flex_none().pl(16).pr(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Chartroom"))
       .child(this.projectButton(t))
       .child(div().flex_1())
       .when(this.isReading && Boolean(this.chart), (el) => el.child(svg(`${ICONS}/spinner.svg`).size(13).flex_none().text_color(t.muted).spin(900)))
-      .when(canBrowse, (el) => el.child(this.iconButton(t, "browser", div().text_size(15).child("↗"), "Open floorplan's own map in the browser (o)", () => this.openInBrowser())))
-      .when(Boolean(this.place?.cwd) && !this.isPicking, (el) => el.child(this.iconButton(t, "redraw", svg(`${ICONS}/square-pen.svg`).size(14),
-        this.chart ? "Ask Claude to update the chart (u)" : "Ask Claude to draw the chart (u)", (_e, cx) => this.draw(cx))))
+      .when(canUpdate, (el) => el.child(this.iconButton(t, "redraw", svg(`${ICONS}/square-pen.svg`).size(14),
+        this.kind === "chartroom" ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)", (_e, cx) => this.draw(cx))))
       .child(this.iconButton(t, "hide", svg(`${ICONS}/x.svg`).size(14), "Close (esc)", () => this.hide()));
   }
 
@@ -502,7 +549,7 @@ export default class Chartroom extends View {
       .children(crumbs);
   }
 
-  body(t, view) {
+  chartBody(t, view) {
     const details = this.selected ? detailsOf(view.level, this.selected) : null;
     const detailsHeight = Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)));
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
@@ -515,36 +562,38 @@ export default class Chartroom extends View {
         .child(detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx) })));
   }
 
-  // No map to show: no folder, still looking, or a project floorplan has not charted yet.
+  // No chart to show: no folder, still looking, or a project not charted yet, with how its last
+  // drawing ended when it did not end well.
   empty(t) {
     const note = (words) => div().flex_1().min_h(0).px(16).py(12).text_size(12).text_color(t.dim).child(words);
     if (!this.place?.cwd) return note("No folder to chart: focus a terminal in a project, or pick one (p).");
     if (!this.isChecked) return note("Looking for a chart…");
+    const ended = this.isDrawing ? "" : endedWords(this.progress, this.log);
     const button = (id, label, isSolid, action) => div().id(id).h(32).px(14).flex().items_center().rounded(8).text_size(12).cursor_pointer()
       .when(isSolid, (el) => el.bg(t.solid).text_color(t.solid_foreground))
       .when(!isSolid, (el) => el.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
       .on_click(action).child(label);
     return v_flex().flex_1().min_h(0).px(16).py(14).gap(10)
-      .child(div().font_medium().child(`No chart of ${baseName(this.place.cwd)} yet`))
+      .child(div().font_medium().child(`No chart of ${baseName(this.folder ?? this.place.cwd)} yet`))
+      .when(Boolean(ended), (el) => el.child(div().text_size(12).line_height("17px").text_color(t.blocked).child(ended)))
       .child(div().text_size(12).line_height("17px").text_color(t.muted)
-        .child("The Chartroom shows the map floorplan makes for Claude Code, kept in a floorplan folder in the project. Ask Claude to draw one, and the chart appears here when it is done."))
+        .child("The Chartroom reads the code and asks your own Claude to name the app's parts and describe every file. It runs in the background on your subscription and takes a few minutes; the only thing it adds to the project is a .chartroom folder that keeps itself out of git."))
       .child(h_flex().gap(8)
-        .child(button("draw", "Draw it with Claude", true, (_e, cx) => this.draw(cx)))
+        .when(!this.place.on, (el) => el.child(button("draw", ended ? "Try again" : "Draw the chart", true, (_e, cx) => this.draw(cx))))
         .child(button("pick", "Pick another project", false, (_e, cx) => this.togglePicker(cx))))
-      .child(div().text_size(11.5).line_height("16px").text_color(t.dim)
-        .child("Needs floorplan in Claude Code: claude plugin marketplace add haydenschmitty/floorplan, then claude plugin install floorplan@floorplan."));
+      .when(Boolean(this.place.on), (el) => el.child(div().text_size(11.5).text_color(t.dim).child("Drawing a chart needs the project on this computer.")));
   }
 
   // Only the keys that do something here.
   hints(view) {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
-    if (!view) return [this.place?.cwd ? "u draw" : "", "p project", "esc close"].filter(Boolean).join("  ·  ");
+    if (this.isDrawing && !view) return `${stepWords(this.progress)}  ·  s stop  ·  esc close`;
+    if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", "esc close"].filter(Boolean).join("  ·  ");
     const card = this.cardOf(view, this.selected);
     const keys = ["↑↓ pick"];
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
-    keys.push("p project", "u update");
-    if (this.folder && !this.place?.on) keys.push("o browser");
+    keys.push("p project", this.isDrawing ? "s stop" : "u update");
     return [...keys, "esc close"].join("  ·  ");
   }
 }

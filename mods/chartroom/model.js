@@ -1,8 +1,9 @@
-// What the Chartroom shows, read from the map floorplan writes (floorplan/graph.json): an app's
-// parts one level at a time, each part, file or outside service a card, and the links between
-// them. Plain functions over plain data, so bun tests them without the app.
+// What the Chartroom shows, read from a project's chart (.chartroom/chart.json, which draw/ makes
+// with the person's own Claude) or from the map floorplan writes (floorplan/graph.json), which has
+// the same shape: an app's parts one level at a time, each part, file or outside service a card,
+// and the links between them. Plain functions over plain data, so bun tests them without the app.
 
-export const SCHEMA = "floorplan/graph@1";
+export const SCHEMAS = ["chartroom/chart@1", "floorplan/graph@1"];
 
 // Guards the walk up a part's parents against a map whose parents loop.
 const MAX_DEPTH = 64;
@@ -19,9 +20,9 @@ export function readChart(text) {
   try {
     graph = JSON.parse(text);
   } catch (error) {
-    throw new Error(`floorplan/graph.json is not valid JSON (${error.message})`);
+    throw new Error(`the chart is not valid JSON (${error.message})`);
   }
-  if (graph?.schema !== SCHEMA) throw new Error(`floorplan/graph.json is ${graph?.schema ?? "in an unknown format"}, and the Chartroom reads ${SCHEMA}`);
+  if (!SCHEMAS.includes(graph?.schema)) throw new Error(`the chart is ${graph?.schema ?? "in an unknown format"}, and the Chartroom reads ${SCHEMAS.join(" and ")}`);
   return indexChart(graph);
 }
 
