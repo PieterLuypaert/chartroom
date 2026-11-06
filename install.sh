@@ -15,7 +15,7 @@ stamp=$(date +%Y%m%d-%H%M%S)
 
 fail() { echo "install: $*" >&2; exit 1; }
 
-for tool in jq herdr-app; do command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on the PATH"; done
+for tool in jq bun herdr-app; do command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on the PATH"; done
 [ -d "$app_home/layouts" ] || fail "no Herdr app at $app_home: open the app once first"
 
 is_chartroom_link() {
@@ -77,7 +77,14 @@ add_blocks() {
   echo "layout: added the panel and the button to $name ($name.json was kept as $name.json.old-$stamp)"
 }
 
+# ELK (elkjs), which lays the charts out; without it they get the plain layout.
+install_packages() {
+  if (cd "$here" && bun install --frozen-lockfile >/dev/null 2>&1); then echo "packages: installed"
+  else echo "packages: bun install failed, so the charts get the plain layout until it works" >&2; fi
+}
+
 link_mod
+install_packages
 add_key
 add_blocks "${1:-$(shown_layout)}"
 herdr-app check "$app_home/mods/chartroom"
