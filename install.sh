@@ -69,6 +69,17 @@ shown_layout() {
   jq -r '.layout // "main"' "$app_home/shared.json" 2>/dev/null || echo main
 }
 
+# A panel an earlier install let grow to 960 px is kept to 600, so a laptop keeps room for the
+# terminals; full size is the Chartroom's own tab.
+narrow_panel() {
+  name=$1 file=$2
+  if ! jq -e '[.. | objects | select(.id? == "chartroom" and (.max // 0) > 600)] | length > 0' "$file" >/dev/null; then echo "layout: $name has the panel already"; return; fi
+  cp "$file" "$file.old-$stamp"
+  jq '(.. | objects | select(.id? == "chartroom")) |= (.max = 600 | if (.size.px // 0) > 600 then .size.px = 460 else . end)' "$file.old-$stamp" >"$file.tmp" || { rm -f "$file.tmp"; fail "could not narrow the panel in $name"; }
+  mv "$file.tmp" "$file"
+  echo "layout: the panel in $name is at most 600 px wide now ($name.json was kept as $name.json.old-$stamp)"
+}
+
 add_blocks() {
   name=$1 file="$app_home/layouts/$1.json"
   [ -f "$file" ] || fail "there is no layout $file"
@@ -77,7 +88,7 @@ add_blocks() {
     echo "  herdr-app do layout.clone '{\"name\":\"$name\",\"as\":\"$name-chart\"}' && $0 $name-chart" >&2
     exit 1
   fi
-  if jq -e '[.. | objects | select(.id? == "chartroom")] | length > 0' "$file" >/dev/null; then echo "layout: $name has the panel already"; return; fi
+  if jq -e '[.. | objects | select(.id? == "chartroom")] | length > 0' "$file" >/dev/null; then narrow_panel "$name" "$file"; return; fi
   cp "$file" "$file.old-$stamp"
   jq -f "$here/layout.jq" "$file.old-$stamp" >"$file.tmp" || { rm -f "$file.tmp"; fail "could not add the panel to $name"; }
   mv "$file.tmp" "$file"

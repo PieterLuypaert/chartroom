@@ -9,7 +9,7 @@
 // focus, selected} it is that tab. The panel beside the terminals stays a key away (⌥⇧⌘F).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, spaces, theme, watchFolder } from "herdr";
+import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView } from "./chart.js";
@@ -66,6 +66,8 @@ const DRAG_STEP = 4;
 const KEEP_IN_VIEW = 120;
 // The heading's height over a wide view's chart, near enough to bound how far it is dragged.
 const HEADING_HEIGHT = 130;
+// A chart view lower than this is a laptop's: the heading is kept small.
+const LOW_VIEW = 700;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -434,8 +436,16 @@ export default class Chartroom extends View {
     });
   }
 
+  // A size as the app reports it, zoomed, in the points the panel draws in: with the app zoomed in
+  // (as on a laptop), a panel is narrower than it reports.
+  unzoomed(size) {
+    const zoom = Number(settings()?.zoom) || 1;
+    return { width: size.width / zoom, height: size.height / zoom };
+  }
+
   // A new size: the cards glide to their new places, and the lines step aside until they are there.
-  resized(size, cx) {
+  resized(reported, cx) {
+    const size = this.unzoomed(reported);
     const isChange = this.hasSize && Math.round(size.width) !== Math.round(this.size.width);
     this.size = size;
     this.hasSize = true;
@@ -1027,7 +1037,7 @@ export default class Chartroom extends View {
         .when(Boolean(view.laid) && isDragging, (el) => el.cursor_grabbing())
         .when(Boolean(view.laid) && !isDragging, (el) => el.cursor_grab())
         .on_size_change((size, cx) => {
-          this.viewSize = size;
+          this.viewSize = this.unzoomed(size);
           cx.notify();
         })
         .on_scroll_wheel((e, cx) => this.wheel(e, cx))
@@ -1060,10 +1070,13 @@ export default class Chartroom extends View {
     const part = level.focus === null ? null : this.chart.nodes.get(level.focus);
     const cards = level.inside.length + level.outside.length;
     const kind = part ? `${part.kind === "external" ? "outside service" : part.kind ?? "part"} · ${cards} cards` : `the whole app · ${cards} cards`;
-    return v_flex().w(Math.min(760, this.chartWidth() - 24)).px(20).pt(18).pb(4).gap(4)
+    // On a low screen (a laptop's), smaller, and what it does in two lines at most.
+    const isLow = (this.viewSize?.height ?? this.size.height) < LOW_VIEW;
+    return v_flex().w(Math.min(760, this.chartWidth() - 56)).px(20).pt(isLow ? 12 : 18).pb(4).gap(isLow ? 2 : 4)
       .child(div().text_size(12).text_color(t.dim).child(kind))
-      .child(div().text_size(24).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
-      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(13).line_height("19px").text_color(t.muted).child(part?.summary ?? this.chart.summary)));
+      .child(div().text_size(isLow ? 19 : 24).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
+      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(isLow ? 12 : 13).line_height(isLow ? "17px" : "19px").text_color(t.muted)
+        .when(isLow, (text) => text.max_h(34).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
   }
 
   // The wheel or two fingers move the chart every way; with ⌘ or ctrl they zoom around the pointer.
