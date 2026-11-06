@@ -18,11 +18,12 @@ const FUNCTIONS = [
 // sh -c FIND_MAP find <folder>, in lines: the folder, whether a drawing is "running" or "idle", the
 // drawing's progress (JSON, or nothing), the end of its log when it is not running (or nothing),
 // whether there is a chart ("chartroom" or "none"), then the chart. Exits 3 when there is no
-// folder with either.
+// folder with either. The log's line drops the newline GNU cut ends with (BSD cut adds none), or on
+// Linux every line after it would move down one.
 export const FIND_MAP = `${FUNCTIONS} d=$(nearest "$1") || exit 3; c="$d/.chartroom"; printf "%s\\n" "$d";
 if drawing "$c"; then echo running; else echo idle; fi;
 if [ -f "$c/progress.json" ]; then tr -d "\\n" < "$c/progress.json"; fi; printf "\\n";
-if ! drawing "$c" && [ -f "$c/draw.log" ]; then tail -n 4 "$c/draw.log" | tr "\\n" " " | cut -c 1-400; fi; printf "\\n";
+if ! drawing "$c" && [ -f "$c/draw.log" ]; then tail -n 4 "$c/draw.log" | tr "\\n" " " | cut -c 1-400 | tr -d "\\n"; fi; printf "\\n";
 if [ -f "$c/chart.json" ]; then echo chartroom; exec cat "$c/chart.json"; else echo none; fi`;
 
 // sh -c FIND_CHARTS find <folder>...: a line per folder, the folder and a tab, then the folder with
