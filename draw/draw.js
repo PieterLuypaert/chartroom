@@ -6,8 +6,10 @@
 // then for a name and a description of every file and endpoint, and writes the chart to
 // <folder>/.chartroom/chart.json. While it works, .chartroom/progress.json says how far it is and
 // .chartroom/pid which process to stop. An update asks only about what changed since the last
-// chart, and for the parts again only when many files fit none of them.
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+// chart, and for the parts again only when many files fit none of them. One drawing at a time:
+// the pid file is the lock, and a second drawing of the same folder leaves without a word written.
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { askClaude, stopAll } from "./claude.js";
 import { assign, checkParts, PARTS_SCHEMA, partsPrompt } from "./parts.js";
@@ -101,16 +103,51 @@ async function draw() {
 async function stop() {
   stopAll();
   await report({ step: "stopped" });
-  await rm(join(out, "pid"), { force: true });
+  await letGo();
   process.exit(1);
+}
+
+// Whether a process runs and is a drawing, so a pid a dead drawing left, and another program took
+// since, does not count.
+function isDrawing(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const run = Bun.spawnSync(["ps", "-p", String(pid), "-o", "command="]);
+  return run.exitCode === 0 && run.stdout.toString().includes("draw/draw.js");
+}
+
+// The lock: the pid file, made only when there is none. One a dead drawing left is taken over.
+async function takeLock() {
+  const path = join(out, "pid");
+  for (let tries = 0; tries < 2; tries += 1) {
+    try {
+      await writeFile(path, String(process.pid), { flag: "wx" });
+      return true;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const holder = Number(await readFile(path, "utf8").catch(() => ""));
+      if (isDrawing(holder)) return false;
+      await rm(path, { force: true });
+    }
+  }
+  return false;
+}
+
+// Gives the lock back, unless another drawing holds it by now.
+async function letGo() {
+  const holder = Number(await readFile(join(out, "pid"), "utf8").catch(() => ""));
+  if (holder === process.pid) await rm(join(out, "pid"), { force: true });
 }
 
 async function main() {
   if (!folder) throw new Error("usage: bun draw/draw.js <folder> [--update]");
+  if ((await realpath(folder)) === (await realpath(homedir()))) throw new Error("the home folder is not a project: pick one");
   await mkdir(out, { recursive: true });
   // The folder keeps itself out of git, and nothing else in the project is touched.
   await writeFile(join(out, ".gitignore"), "*\n");
-  await writeFile(join(out, "pid"), String(process.pid));
+  if (!(await takeLock())) {
+    console.error("chartroom: a drawing of this folder runs already, so this one leaves it be");
+    process.exit(1);
+  }
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
   try {
@@ -121,7 +158,7 @@ async function main() {
     await report({ step: progress.step === "stopped" ? "stopped" : "failed", error: error.message });
     process.exitCode = 1;
   } finally {
-    await rm(join(out, "pid"), { force: true });
+    await letGo();
   }
 }
 

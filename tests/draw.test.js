@@ -22,8 +22,8 @@ const write = (path, text) => {
 };
 
 function draw(...flags) {
-  const run = Bun.spawnSync(["bun", join(import.meta.dir, "..", "draw", "draw.js"), project, ...flags], {
-    env: { ...process.env, CHARTROOM_CLAUDE: fakeClaude, FAKE_CLAUDE_LOG: claudeLog, FAKE_CLAUDE_FAIL: flags.includes("fail") ? "1" : "" },
+  const run = Bun.spawnSync(["bun", join(import.meta.dir, "..", "draw", "draw.js"), project, ...flags.filter((flag) => flag !== "fail")], {
+    env: { ...process.env, CHARTROOM_CLAUDE: fakeClaude, FAKE_CLAUDE_LOG: claudeLog, FAKE_CLAUDE_FAIL: flags.includes("fail") ? "1" : "", ...(flags.includes("home") ? { HOME: project } : {}) },
   });
   return { code: run.exitCode, err: run.stderr.toString() };
 }
@@ -76,6 +76,32 @@ describe("draw.js", () => {
     expect(draw("--update")).toMatchObject({ code: 0 });
     expect(asked()).toEqual(["parts", "describe jobs/fetch.ts"]);
     expect(levelOf(chart(), null).inside.map((card) => card.label)).toContain("The jobs");
+  });
+
+  test("leaves a folder another drawing holds alone, without a word in its progress", () => {
+    const standIn = join(work, "stand-in", "draw", "draw.js");
+    mkdirSync(join(standIn, ".."), { recursive: true });
+    writeFileSync(standIn, "setTimeout(() => {}, 60000);");
+    const holder = Bun.spawn(["bun", standIn]);
+    try {
+      writeFileSync(join(project, ".chartroom", "pid"), String(holder.pid));
+      const before = readFileSync(join(project, ".chartroom", "progress.json"), "utf8");
+      expect(draw("--update")).toMatchObject({ code: 1, err: expect.stringContaining("a drawing of this folder runs already") });
+      expect(readFileSync(join(project, ".chartroom", "progress.json"), "utf8")).toBe(before);
+      expect(readFileSync(join(project, ".chartroom", "pid"), "utf8")).toBe(String(holder.pid));
+    } finally {
+      holder.kill();
+    }
+  });
+
+  test("takes over the pid a drawing that died left", () => {
+    writeFileSync(join(project, ".chartroom", "pid"), String(process.pid));
+    expect(draw("--update")).toMatchObject({ code: 0 });
+    expect(existsSync(join(project, ".chartroom", "pid"))).toBe(false);
+  });
+
+  test("does not draw the home folder", () => {
+    expect(draw("home")).toMatchObject({ code: 1, err: expect.stringContaining("the home folder is not a project") });
   });
 
   test("says why it failed when Claude cannot answer", () => {

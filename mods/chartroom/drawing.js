@@ -67,9 +67,11 @@ export function updateStrip({ t, progress, onStop }) {
     .child(stopButton(t, onStop));
 }
 
-// How the last drawing ended, when it did not end with a chart: in words, or nothing.
-export function endedWords(progress) {
-  if (progress?.step === "failed") return `The last drawing failed: ${progress.error ?? "for no reason it gave"}`;
+// How the last drawing ended, when it did not end with a chart: in words, or nothing. One that
+// ended before it could say so speaks through the end of its log.
+export function endedWords(progress, log = "") {
+  if (progress?.step === "failed") return `The last drawing failed: ${progress.error || log || "for no reason it gave"}`;
   if (progress?.step === "stopped") return "The last drawing was stopped.";
+  if (!progress && log) return `The last drawing ended before it began: ${log}`;
   return "";
 }

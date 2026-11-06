@@ -158,7 +158,7 @@ export default class Chartroom extends View {
     if (result.code === 3) return this.forget();
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
-    Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, isDrawing: found.isDrawing, error: "" });
+    Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
     if (found.kind === "none") Object.assign(this, { chart: null, text: null });
     else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length);
     this.watch(place, cx);
@@ -210,11 +210,15 @@ export default class Chartroom extends View {
 
   // Draws the project's chart in the background, or brings the Chartroom's own chart up to date.
   // A project with no chart yet is drawn from the top of its repository.
+  // Starts once, however often it is asked while starting; START_DRAW and the drawing itself refuse
+  // a second drawing of a folder too. What it learns lands only on the project it started for.
   draw(cx) {
     const place = this.place;
-    if (!place?.cwd || this.isDrawing) return;
+    if (!place?.cwd || this.isDrawing || this.isStarting) return;
     if (place.on) return notify({ title: "Chartroom", body: "Drawing a chart needs the project on this computer.", level: "warning" });
     const isUpdate = this.kind === "chartroom";
+    const context = this.context;
+    this.isStarting = true;
     cx.spawn(async (cx) => {
       try {
         const script = await this.drawScript();
@@ -226,10 +230,14 @@ export default class Chartroom extends View {
         const started = await exec("sh", ["-c", START_DRAW, "draw", folder, script, isUpdate ? "--update" : ""]);
         if (started.code !== 0) throw new Error(started.stderr.trim() || `starting it ended with ${started.code}`);
         // Read again once the drawing reports, not before: it may not have said it runs yet.
-        Object.assign(this, { folder, isDrawing: true, progress: { step: "scan", done: 0, total: 0 } });
-        this.watch(place, cx);
+        if (this.context === context) {
+          Object.assign(this, { folder, isDrawing: true, progress: { step: "scan", done: 0, total: 0 } });
+          this.watch(place, cx);
+        }
       } catch (error) {
         notify({ title: "Chartroom", body: `The chart could not be drawn: ${error.message ?? error}`, level: "error" });
+      } finally {
+        this.isStarting = false;
       }
       cx.notify();
     });
@@ -421,7 +429,7 @@ export default class Chartroom extends View {
     this.watchShown(cx);
     if (isShown() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
     const view = this.chart && !this.isPicking ? this.view() : null;
-    const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress) : "";
+    const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress, this.log) : "";
     const error = this.isPicking ? "" : this.error || failed;
     return v_flex().id("chartroom").track_focus(this.handle).size_full().min_h(0).bg(t.chrome).text_size(13).text_color(t.foreground)
       .on_size_change((size, cx) => {
@@ -542,7 +550,7 @@ export default class Chartroom extends View {
     const note = (words) => div().flex_1().min_h(0).px(16).py(12).text_size(12).text_color(t.dim).child(words);
     if (!this.place?.cwd) return note("No folder to chart: focus a terminal in a project, or pick one (p).");
     if (!this.isChecked) return note("Looking for a chart…");
-    const ended = endedWords(this.progress);
+    const ended = this.isDrawing ? "" : endedWords(this.progress, this.log);
     const button = (id, label, isSolid, action) => div().id(id).h(32).px(14).flex().items_center().rounded(8).text_size(12).cursor_pointer()
       .when(isSolid, (el) => el.bg(t.solid).text_color(t.solid_foreground))
       .when(!isSolid, (el) => el.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
