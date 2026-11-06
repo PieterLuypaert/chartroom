@@ -1,5 +1,7 @@
 # Chartroom
 
+[![Tests](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml/badge.svg)](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml)
+
 An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn by your own Claude.
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
@@ -67,6 +69,8 @@ bun draw/draw.js <folder>         # draw a chart from the command line
 ```
 
 `draw/` holds the drawing (scan, Claude calls, layout); `mods/chartroom/` holds the panel.
+
+The tests need no Claude and no Herdr app: a stand-in `claude` (`tests/fake-claude.js`) answers in the shape asked, and `install.sh` runs against a Herdr home of its own. `tests/e2e.test.js` takes the panel's whole way through the same shell snippets it runs: a project drawn in the background, its levels laid out by ELK, questions asked per card and per level, a card explained, and an update after a commit. GitHub runs them on Linux and macOS for every push and pull request.
 
 ## Build it from the recipe
 
