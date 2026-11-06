@@ -1163,13 +1163,14 @@ export default class Chartroom extends View {
         .when(isLow, (text) => text.max_h(34).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
   }
 
-  // The wheel or two fingers move the chart every way; with ⌘ or ctrl they zoom around the pointer.
+  // The wheel or two fingers zoom around the pointer, as a map does; dragging moves the chart. With
+  // shift or ⌘ held they move it instead.
   wheel(e, cx) {
     if (!this.memo?.laid) return;
     const m = e.modifiers ?? {};
     const dx = e.delta?.x ?? 0;
     const dy = e.delta?.y ?? 0;
-    if ((m.platform || m.control) && this.memo.laid.lines) {
+    if (!(m.shift || m.platform) && this.memo.laid.lines) {
       if (Math.abs(dy) >= 0.5) this.zoomTo(this.zoomNow() * Math.pow(1.0025, dy), cx, e.local_position ?? null);
     } else {
       this.panTo(this.pan.x - dx, this.pan.y - dy);
