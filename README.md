@@ -78,7 +78,7 @@ The tests need no Claude and no Herdr app: a stand-in `claude` (`tests/fake-clau
 
 ## Build it from the recipe
 
-[RECIPE.md](RECIPE.md) describes the Chartroom for an agent to build from an empty folder, as [herdr.dev/mods](https://herdr.dev/mods) shares mods.
+[RECIPE.md](RECIPE.md) describes the Chartroom for an agent to build from an empty folder.
 
 ## License
 
