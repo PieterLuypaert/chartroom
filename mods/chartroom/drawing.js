@@ -68,6 +68,17 @@ export function updateStrip({ t, progress, onStop }) {
     .child(stopButton(t, onStop));
 }
 
+// Under the trail when the code moved on since the chart: how far, and a way to bring it up to date.
+export function changedStrip({ t, changed, isOwn, onUpdate }) {
+  const parts = [changed.commits ? `${changed.commits} commit${changed.commits === 1 ? "" : "s"}` : "", changed.files ? `${changed.files} file${changed.files === 1 ? "" : "s"} not committed` : ""].filter(Boolean);
+  return h_flex().h(36).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border).text_size(12)
+    .child(div().size(7).flex_none().rounded_full().bg(t.accent))
+    .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`The code moved on since this chart: ${parts.join(", ")}`))
+    .child(div().id("update-chart").flex_none().h(24).px(10).flex().items_center().rounded(6).bg(t.solid).text_color(t.solid_foreground).text_size(12)
+      .cursor_pointer().tooltip(isOwn ? "Your Claude reads only what changed (u)" : "Your Claude draws the Chartroom's own chart (u)")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => onUpdate(cx)).child(isOwn ? "Update the chart" : "Draw it"));
+}
+
 // How the last drawing ended, when it did not end with a chart: in words, or nothing. One that
 // ended before it could say so speaks through the end of its log.
 export function endedWords(progress, log = "") {
