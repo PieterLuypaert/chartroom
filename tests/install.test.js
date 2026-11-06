@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,10 +16,17 @@ put("shared.json", { layout: "mine" });
 put("installed.json", {});
 put("keys.json", { global: { "cmd-alt-f": "layout.toggle:chartroom", "cmd-k": "app.palette" } });
 mkdirSync(join(home, "mods"));
+// A stand-in herdr-app that logs how it was run, so the install needs no Herdr app, and this
+// machine's own app is left alone.
+const bin = join(home, "bin");
+const herdrLog = join(home, "herdr-app.log");
+mkdirSync(bin);
+writeFileSync(join(bin, "herdr-app"), `#!/bin/sh\necho "$@" >> "${herdrLog}"\n`);
+chmodSync(join(bin, "herdr-app"), 0o755);
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const install = () => {
-  const run = Bun.spawnSync(["sh", join(import.meta.dir, "..", "install.sh")], { env: { ...process.env, HERDR_APP_HOME: home } });
+  const run = Bun.spawnSync(["sh", join(import.meta.dir, "..", "install.sh")], { env: { ...process.env, HERDR_APP_HOME: home, PATH: `${bin}:${process.env.PATH}` } });
   return { code: run.exitCode, out: run.stdout.toString(), err: run.stderr.toString() };
 };
 
@@ -27,6 +34,7 @@ describe("install.sh", () => {
   test("binds full size and the panel, moving the key it bound before and leaving the person's own", () => {
     expect(install()).toMatchObject({ code: 0, out: expect.stringContaining("key: cmd-alt-f does chartroom.full (it did layout.toggle:chartroom)") });
     expect(json("keys.json").global).toEqual({ "cmd-alt-f": "chartroom.full", "cmd-alt-shift-f": "layout.toggle:chartroom", "cmd-k": "app.palette" });
+    expect(readFileSync(herdrLog, "utf8")).toBe(`check ${home}/mods/chartroom\n`);
   });
 
   test("puts the panel and the button in the layout", () => {
