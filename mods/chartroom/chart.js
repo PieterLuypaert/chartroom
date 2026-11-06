@@ -41,17 +41,24 @@ function subline(card) {
 
 // The level's cards and lines, at the places layOut gave them. The lines of the card picked are
 // drawn over the others in the accent colour.
-export function chartView({ t, laid, selected, onPick }) {
+//
+// Moving runs natively: a level fades in when it is new (`levelKey` changed and `isEntering`), the
+// picked card's lines fade in, and cards glide to new places while the view is resized, the other
+// lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
+export function chartView({ t, laid, selected, onPick, levelKey, isEntering, isLitEntering, isMoving }) {
   const isLit = (curve) => curve.from === selected || curve.to === selected;
-  return div().relative().w_full().h(laid.height)
+  return div().id(`level-${levelKey}`).relative().w_full().h(laid.height).opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
-      ...lineLayers(laid.curves.filter((curve) => !isLit(curve)), thin(t.dim, "a0"), LINE_WIDTH),
-      ...lineLayers(laid.curves.filter(isLit), t.accent, LIT_LINE_WIDTH),
+      ...lineLayers(laid.curves.filter((curve) => !isLit(curve)), thin(t.dim, "a0"), LINE_WIDTH, "lines", isMoving),
+      ...lineLayers(laid.curves.filter(isLit), t.accent, LIT_LINE_WIDTH, `lit-${selected}`, isLitEntering),
       ...laid.cards.map((box) => cardView(t, box, box.id === selected, onPick)),
     ]);
 }
 
-function lineLayers(curves, color, width) {
+const FADE = { duration: 180, easing: "ease-out" };
+const GLIDE = { duration: 220, easing: "ease-out" };
+
+function lineLayers(curves, color, width, id, isHidden) {
   if (!curves.length) return [];
   let stroke = PathBuilder.stroke(width);
   let heads = PathBuilder.fill();
@@ -59,7 +66,8 @@ function lineLayers(curves, color, width) {
     stroke = stroke.move_to(start[0], start[1]).cubic_bezier_to(end[0], end[1], c1[0], c1[1], c2[0], c2[1]);
     heads = heads.add_polygon(arrow, true);
   }
-  return [stroke.build(), heads.build()].map((path) => window.paint_path(path, color).absolute().top(0).left(0).size_full());
+  return [stroke.build(), heads.build()].map((path, index) => window.paint_path(path, color).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
+    .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
 }
 
 // A card as the Changes panel draws a file: its icon and name, and under it what it is. An outside
@@ -67,6 +75,7 @@ function lineLayers(curves, color, width) {
 function cardView(t, box, isSelected, onPick) {
   const isInside = box.isInside;
   return v_flex().id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h).px(10).gap(2).justify_center()
+    .transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE)
     .rounded(8).border_1().border_color(isSelected ? t.accent : t.border).bg(isSelected ? t.selected : isInside ? t.background : t.chrome)
     .cursor_pointer().hover((s) => s.bg(t.hover))
     .tooltip(box.summary || box.label)
