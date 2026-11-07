@@ -91,6 +91,19 @@ describe("levelOf a part", () => {
   });
 });
 
+describe("levelOf, kept", () => {
+  test("gives the same level for the same chart and part, without working it out again", () => {
+    expect(levelOf(chart, "api")).toBe(levelOf(chart, "api"));
+    expect(levelOf(chart, "gone")).toBe(levelOf(chart, null));
+  });
+
+  test("works a level out afresh for a chart read again, the same as before", () => {
+    const again = readChart(text);
+    expect(levelOf(again, "api")).not.toBe(levelOf(chart, "api"));
+    expect(levelOf(again, "api")).toEqual(levelOf(chart, "api"));
+  });
+});
+
 describe("trailOf", () => {
   test("leads from the app down to the part", () => {
     expect(trailOf(chart, "api.routes").map((step) => step.label)).toEqual(["Tide Tables", "Server", "Requests"]);

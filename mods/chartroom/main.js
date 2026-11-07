@@ -760,7 +760,7 @@ export default class Chartroom extends View {
   view(cx) {
     const direction = this.direction();
     const width = this.chartWidth();
-    const level = this.memo?.chart === this.chart && this.memo.focus === this.focus ? this.memo.level : levelOf(this.chart, this.focus);
+    const level = levelOf(this.chart, this.focus);
     const key = this.levelKey(this.focus, direction);
     const elk = this.layouts.get(key);
     if (!elk && cx) this.lay([{ key, level, direction }], cx);

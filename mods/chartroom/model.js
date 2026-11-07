@@ -133,9 +133,20 @@ export function trailOf(chart, focus) {
 
 // One level: the cards inside the focus, the cards outside it that link to them (`side`: "above"
 // for those that only use what is inside, "below" for the rest), and the links between them,
-// one line per pair and direction, with how many links it stands for and what they carry.
+// one line per pair and direction, with how many links it stands for and what they carry. Each is
+// worked out once per chart and kept, as a big chart's level takes tens of milliseconds and the
+// panel asks for the same ones again (the level shown, those laid out ahead, the one gone back to).
+// A level is never changed by those who ask for it.
+const levelsByChart = new WeakMap();
 export function levelOf(chart, focus = null) {
   const at = focus !== null && chart.nodes.has(focus) ? focus : null;
+  if (!levelsByChart.has(chart)) levelsByChart.set(chart, new Map());
+  const levels = levelsByChart.get(chart);
+  if (!levels.has(at)) levels.set(at, workOutLevel(chart, at));
+  return levels.get(at);
+}
+
+function workOutLevel(chart, at) {
   const inside = [
     ...(chart.children.get(at) ?? []).map((id) => partCard(chart, id, true)),
     ...(at === null ? [] : (chart.filesOf.get(at) ?? []).map((path) => fileCard(chart, path))),
