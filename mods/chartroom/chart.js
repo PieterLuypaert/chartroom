@@ -432,9 +432,21 @@ function section(t, title, ends, side, onPick) {
   ];
 }
 
+// The search field's own keys. A text field binds Up and Down to moving its cursor, and its binding
+// takes the key before the panel's on_key_down hears it, so the search binds them, and Escape, to
+// actions of its own for a text field inside its context: at the same depth the binding added last
+// wins. main.js installs them with cx.bind_keys.
+const SEARCH_CONTEXT = "ChartroomSearch";
+export const SEARCH_KEYS = [
+  { keystroke: "up", action: "chartroom_found_up", context: `${SEARCH_CONTEXT} > Input` },
+  { keystroke: "down", action: "chartroom_found_down", context: `${SEARCH_CONTEXT} > Input` },
+  { keystroke: "escape", action: "chartroom_search_close", context: `${SEARCH_CONTEXT} > Input` },
+];
+
 // Finding a card, in place of the chart: the field, then what it finds, each with its kind's icon,
-// its name, an endpoint's route, and where it sits. The row under the cursor is lit.
-export function searchView({ t, field, query, found, cursor, onPick }) {
+// its name, an endpoint's route, and where it sits. The row under the cursor is lit; Up and Down move
+// it from the field, and Escape closes the search.
+export function searchView({ t, field, query, found, cursor, onPick, onMove, onClose }) {
   const row = (one, index) => h_flex().id(`found-${index}`).h(ROW_HEIGHT + 2).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
     .when(index === cursor, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
     .on_mouse_down("left", stopPress)
@@ -445,7 +457,10 @@ export function searchView({ t, field, query, found, cursor, onPick }) {
     .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(one.where));
   const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
   return v_flex().id("search").flex_1().min_h(0).p(8).gap(1)
-    .child(h_flex().id("search-field").flex_none().h(32).mx(2).mb(6).px(10).gap(8).items_center().rounded(8).border_1().border_color(t.accent).cursor_text()
+    .child(h_flex().id("search-field").key_context(SEARCH_CONTEXT).flex_none().h(32).mx(2).mb(6).px(10).gap(8).items_center().rounded(8).border_1().border_color(t.accent).cursor_text()
+      .on_action("chartroom_found_up", (_e, cx) => onMove(-1, cx))
+      .on_action("chartroom_found_down", (_e, cx) => onMove(1, cx))
+      .on_action("chartroom_search_close", (_e, cx) => onClose(cx))
       .on_mouse_down("left", stopPress)
       .child(svg(`${ICONS}/search.svg`).size(14).flex_none().text_color(t.muted))
       .child(div().flex_1().min_w(0).h_full().flex().items_center().child(Input.new(field).h_full().text_size(12.5).text_color(t.foreground))))

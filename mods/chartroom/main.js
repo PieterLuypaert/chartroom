@@ -12,7 +12,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView, prebuildLines, searchView } from "./chart.js";
+import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -171,6 +171,7 @@ export default class Chartroom extends View {
     this.searchField = InputState.new({ placeholder: "Find a part, file or endpoint" });
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
+    cx.bind_keys(SEARCH_KEYS);
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
     // The minimap: a drag on it underway, whether the pointer is on it, and the wide view's heading height.
@@ -1167,10 +1168,16 @@ export default class Chartroom extends View {
   }
 
   searchKey(k, cx) {
-    if (k === "down" || k === "up") this.foundCursor = Math.max(0, Math.min(this.found.length - 1, this.foundCursor + (k === "down" ? 1 : -1)));
+    if (k === "down" || k === "up") this.moveFound(k === "down" ? 1 : -1, cx);
     else if (k === "escape") this.closeSearch(cx);
     else return false;
     return true;
+  }
+
+  // The row the keys are on in what the search found, one up or down.
+  moveFound(by, cx) {
+    this.foundCursor = Math.max(0, Math.min(this.found.length - 1, this.foundCursor + by));
+    cx.notify();
   }
 
   pickerKey(k, cx) {
@@ -1250,7 +1257,8 @@ export default class Chartroom extends View {
     if (this.isPicking) return this.picker(t);
     if (view && this.isSearching) {
       const onPick = (one, cx) => this.jumpTo(one, cx);
-      return searchView({ t, field: this.searchField, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick });
+      return searchView({ t, field: this.searchField, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick,
+        onMove: (by, cx) => this.moveFound(by, cx), onClose: (cx) => this.closeSearch(cx) });
     }
     if (view) return this.chartBody(t, view);
     if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
