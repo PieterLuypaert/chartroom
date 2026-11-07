@@ -1,7 +1,7 @@
 // The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with the lines
 // between them, and beside or under it the card picked, with what it uses and what uses it.
 import { div, svg, PathBuilder } from "gpui-kit";
-import { h_flex, Input, Popup, TextView, v_flex } from "gpui-base";
+import { h_flex, Input, Popup, Scrollbar, TextView, v_flex, v_virtual_list } from "gpui-base";
 import { MODELS, modelLabel } from "./models.js";
 
 // Herdr's own icons: the app draws no asset reached through the link install.sh makes.
@@ -27,6 +27,7 @@ const BUSY_LINES = 18;
 const LIT_LINE_WIDTH = 1.8;
 const ROW_HEIGHT = 28;
 const FOUND_ROW = 40;
+const FOUND_SHOWN = 10;
 
 const kindOf = (card) => KINDS[card.kind] ?? KINDS.misc;
 const iconOf = (card) => `${ICONS}/${kindOf(card).icon}.svg`;
@@ -448,7 +449,7 @@ export const SEARCH_KEYS = [
 // (as `/` does), with a `/` keycap to teach the key; open, the same box holding the field, its keys
 // those of SEARCH_KEYS, and under it a dropdown over the chart of what it finds. The box wants 220px
 // (320px open) and is the first to give way when the header is short, down to its icon.
-export function searchBox({ t, field, isOpen, query, found, cursor, width, onOpen, onPick, onMove, onClose }) {
+export function searchBox({ t, field, isOpen, query, found, cursor, width, scroll, onOpen, onPick, onMove, onClose }) {
   const box = h_flex().id("search-box").key_context(SEARCH_CONTEXT).size_full().px(7).gap(6).items_center()
     .rounded(6).border_1().overflow_hidden().text_size(11.5)
     .on_mouse_down("left", stopPress)
@@ -466,20 +467,24 @@ export function searchBox({ t, field, isOpen, query, found, cursor, width, onOpe
     .on_action("chartroom_found_down", (_e, cx) => onMove(1, cx))
     .on_action("chartroom_search_close", (_e, cx) => onClose(cx))
     .child(div().flex_1().min_w(0).h_full().flex().items_center().child(Input.new(field).h_full().text_size(12).text_color(t.foreground)));
-  return popup(withField).anchor("top_left").content(foundList({ t, query, found, cursor, width, onPick }));
+  return popup(withField).anchor("top_left").content(foundList({ t, query, found, cursor, width, scroll, onPick }));
 }
 
 // What the search finds, in the dropdown under its box: each card a row of two lines, its kind's
 // icon, its name, an endpoint's route and what it is, then where it sits. The row under the cursor
-// is lit; at most ten show before it scrolls.
-function foundList({ t, query, found, cursor, width, onPick }) {
-  const row = (one, index) => h_flex().id(`found-${index}`).h(FOUND_ROW).flex_none().px(8).gap(10).items_center().rounded(6).cursor_pointer()
+// is lit; at most ten show, and past that the list scrolls, by the wheel or to keep the cursor's
+// row in view (`scroll`, a VirtualListScrollHandle main.js moves). A row picks on its click, which
+// a virtual list reports for the list by the row's key.
+function foundList({ t, query, found, cursor, width, scroll, onPick }) {
+  const frame = v_flex().id("found").role("list_box").w(width).mt(4).p(4).rounded(8).border_1().border_color(t.border)
+    .bg(t.background).shadow_lg()
+    .on_mouse_down("left", stopPress);
+  if (found.length === 0) {
+    const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
+    return frame.child(div().px(8).py(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.dim).child(words));
+  }
+  const row = (one, index) => h_flex().id(`found-${index}`).w_full().h(FOUND_ROW).flex_none().px(8).gap(10).items_center().rounded(6).cursor_pointer()
     .role("list_box_option").when(index === cursor, (el) => el.bg(t.selected).aria_active_descendant()).hover((s) => s.bg(t.hover))
-    // On the press, as the dropdown may be gone by the release if the field loses the keyboard.
-    .on_mouse_down("left", (_e, cx) => {
-      cx.stop_propagation();
-      onPick(one, cx);
-    })
     .child(svg(iconOf({ kind: one.kind === "endpoint" ? "file" : one.kind })).size(14).flex_none().text_color(t.muted))
     .child(v_flex().flex_1().min_w(0).gap(2)
       .child(h_flex().min_w(0).gap(8).items_center()
@@ -488,10 +493,12 @@ function foundList({ t, query, found, cursor, width, onPick }) {
         .child(div().flex_1())
         .child(div().flex_none().text_size(TYPE.small).text_color(t.dim).child(one.kind === "endpoint" ? "endpoint" : kindOf(one).word)))
       .child(div().min_w(0).truncate().text_size(TYPE.small).text_color(t.dim).child(one.where)));
-  const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
-  return v_flex().id("found").role("list_box").w(width).max_h(FOUND_ROW * 10 + 18).mt(4).p(4).gap(1).rounded(8).border_1().border_color(t.border)
-    .bg(t.background).shadow_lg().overflow_y_scrollbar()
-    .on_mouse_down("left", stopPress)
-    .when(found.length > 0, (el) => el.children(found.map(row)))
-    .when(found.length === 0, (el) => el.child(div().px(8).py(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.dim).child(words)));
+  // A row's key leads with its place, as an endpoint shares its file's ref.
+  const rows = v_virtual_list("found-rows", found.length, FOUND_ROW, (index) => `${index} ${found[index].ref}`,
+    (range) => found.slice(range.start, range.end).map((one, offset) => row(one, range.start + offset)))
+    .size_full().track_scroll(scroll)
+    .on_item_click((key, cx) => onPick(found[Number(key.slice(0, key.indexOf(" ")))], cx));
+  return frame.child(v_flex().relative().h(Math.min(found.length, FOUND_SHOWN) * FOUND_ROW)
+    .child(rows)
+    .child(Scrollbar.vertical("found-rows").absolute().inset_0()));
 }

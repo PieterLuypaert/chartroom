@@ -8,7 +8,7 @@
 // through the command chartroom.full), and from that tab goes back; with props {tab: true, project,
 // focus, selected} it is that tab. The panel beside the terminals stays a key away (⌥⇧⌘F).
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState } from "gpui-base";
+import { v_flex, h_flex, InputState, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
@@ -169,6 +169,7 @@ export default class Chartroom extends View {
     // keys are on, and the index of the chart it searches, made when the search opens.
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
     this.searchField = InputState.new({ placeholder: "Search the chart" });
+    this.foundScroll = VirtualListScrollHandle.new();
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
     // A press on the chart, or anywhere else the keyboard goes, closes the search; its rows keep it.
@@ -308,6 +309,7 @@ export default class Chartroom extends View {
   async close() {
     this.question?.release();
     this.searchField?.release();
+    this.foundScroll?.release();
     this.modelList?.release();
   }
 
@@ -1029,6 +1031,7 @@ export default class Chartroom extends View {
     if (!this.chart || !this.isSearching) return;
     this.found = searchChart(this.indexNow(), this.searchField.value());
     this.foundCursor = 0;
+    if (this.found.length > 0) this.foundScroll.scroll_to_item(0);
     cx.notify();
   }
 
@@ -1186,6 +1189,7 @@ export default class Chartroom extends View {
   // The row the keys are on in what the search found, one up or down.
   moveFound(by, cx) {
     this.foundCursor = Math.max(0, Math.min(this.found.length - 1, this.foundCursor + by));
+    if (this.found.length > 0) this.foundScroll.scroll_to_item(this.foundCursor);
     cx.notify();
   }
 
@@ -1333,6 +1337,7 @@ export default class Chartroom extends View {
       found: this.found,
       cursor: this.foundCursor,
       width: Math.max(220, Math.min(420, this.size.width - 32)),
+      scroll: this.foundScroll,
       onOpen: (cx) => this.openSearch(cx),
       onPick: (one, cx) => this.jumpTo(one, cx),
       onMove: (by, cx) => this.moveFound(by, cx),
@@ -1462,7 +1467,8 @@ export default class Chartroom extends View {
   // The wheel or two fingers zoom around the pointer, as a map does; dragging moves the chart. With
   // shift or ⌘ held they move it instead.
   wheel(e, cx) {
-    if (!this.memo?.laid) return;
+    // While the search is open, the wheel is its dropdown's: the chart under it neither zooms nor pans.
+    if (!this.memo?.laid || this.isSearching) return;
     const m = e.modifiers ?? {};
     const dx = e.delta?.x ?? 0;
     const dy = e.delta?.y ?? 0;
