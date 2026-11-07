@@ -259,3 +259,25 @@ function bandsOf(cards, direction, insideLabel, zoom) {
   }
   return bands;
 }
+
+// ---- The heading over a level in a wide view
+
+// The heading's sizes at the chart's zoom, as the cards it sits over grow and shrink: what the
+// level is (a line in t.muted), its name, and what it does, with room between its lines. Smaller on
+// a low screen, where what it does keeps to two lines. The name stops growing at 32px, so a close
+// zoom does not turn it into a banner.
+export function headingType(zoom = 1, isLow = false) {
+  const at = (px) => Math.round(px * zoom * 10) / 10;
+  return {
+    width: at(760),
+    padX: at(20),
+    padTop: at(isLow ? 12 : 18),
+    padBottom: at(4),
+    gap: at(isLow ? 2 : 4),
+    kind: at(13),
+    name: Math.min(32, at(isLow ? 19 : 24)),
+    summary: at(isLow ? 12 : 13),
+    summaryLine: at(isLow ? 17 : 20),
+    summaryMax: isLow ? at(34) : null,
+  };
+}

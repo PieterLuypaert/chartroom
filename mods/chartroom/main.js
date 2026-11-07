@@ -11,7 +11,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
-import { elkLevel, fromElk, layOut } from "./layout.js";
+import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -72,7 +72,8 @@ const DRAG_STEP = 4;
 const KEEP_IN_VIEW = 120;
 // The wheel at rest this long ends a zoom with it; until then the cards follow it without gliding.
 const WHEEL_REST_MS = 160;
-// The heading's height over a wide view's chart, near enough to bound how far it is dragged.
+// The heading's height over a wide view's chart at 100%, near enough to bound how far it is dragged
+// until its real height is known.
 const HEADING_HEIGHT = 130;
 // A chart view lower than this is a laptop's: the heading is kept small.
 const LOW_VIEW = 700;
@@ -580,7 +581,7 @@ export default class Chartroom extends View {
     const laid = this.memo?.laid;
     const view = this.visible();
     const width = Math.max(laid?.width ?? 0, KEEP_IN_VIEW);
-    const height = Math.max((laid?.height ?? 0) + (this.isWide() ? HEADING_HEIGHT : 0), KEEP_IN_VIEW);
+    const height = Math.max((laid?.height ?? 0) + (this.isWide() ? this.headingNow() : 0), KEEP_IN_VIEW);
     const between = (value, low, high) => Math.min(high, Math.max(low, value));
     this.pan = { x: between(x, KEEP_IN_VIEW - view.width, width - KEEP_IN_VIEW), y: between(y, KEEP_IN_VIEW - view.height, height - KEEP_IN_VIEW) };
   }
@@ -618,7 +619,7 @@ export default class Chartroom extends View {
   minimap(view) {
     const visible = this.visible();
     if (!view?.laid?.lines || !hasRoomFor(visible)) return null;
-    const top = this.isWide() ? this.headingHeight ?? HEADING_HEIGHT : 0;
+    const top = this.isWide() ? this.headingNow() : 0;
     return minimapOf(view.laid.cards, { view: visible, pan: this.pan, top });
   }
 
@@ -663,6 +664,11 @@ export default class Chartroom extends View {
 
   zoomNow() {
     return this.memo?.laid?.zoom ?? 1;
+  }
+
+  // The heading's height as last measured, or until it is, near enough at the chart's zoom.
+  headingNow() {
+    return this.headingHeight ?? HEADING_HEIGHT * this.zoomNow();
   }
 
   // A card under the pointer lights its lines.
@@ -1360,13 +1366,16 @@ export default class Chartroom extends View {
     const part = level.focus === null ? null : this.chart.nodes.get(level.focus);
     const cards = level.inside.length + level.outside.length;
     const kind = part ? `${part.kind === "external" ? "outside service" : part.kind ?? "part"} · ${cards} cards` : `the whole app · ${cards} cards`;
-    // On a low screen (a laptop's), smaller, and what it does in two lines at most.
+    // On a low screen (a laptop's), smaller, and what it does in two lines at most. At the chart's
+    // zoom, as the cards it sits over, and as wide as they may be.
     const isLow = (this.viewSize?.height ?? this.size.height) < LOW_VIEW;
-    return v_flex().id("heading").on_size_change((size, cx) => this.headingSized(size, cx)).w(Math.min(760, this.chartWidth() - 56)).px(20).pt(isLow ? 12 : 18).pb(4).gap(isLow ? 2 : 4)
-      .child(div().text_size(12).text_color(t.dim).child(kind))
-      .child(div().text_size(isLow ? 19 : 24).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
-      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(isLow ? 12 : 13).line_height(isLow ? "17px" : "19px").text_color(t.muted)
-        .when(isLow, (text) => text.max_h(34).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
+    const sizes = headingType(this.zoomNow(), isLow);
+    const room = Math.max(this.chartWidth(), this.memo?.laid?.width ?? 0) - 56;
+    return v_flex().id("heading").on_size_change((size, cx) => this.headingSized(size, cx)).w(Math.min(sizes.width, room)).px(sizes.padX).pt(sizes.padTop).pb(sizes.padBottom).gap(sizes.gap)
+      .child(div().text_size(sizes.kind).text_color(t.muted).child(kind))
+      .child(div().text_size(sizes.name).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
+      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(sizes.summary).line_height(`${sizes.summaryLine}px`).text_color(t.muted)
+        .when(sizes.summaryMax !== null, (text) => text.max_h(sizes.summaryMax).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
   }
 
   // The wheel or two fingers zoom around the pointer, as a map does; dragging moves the chart. With
