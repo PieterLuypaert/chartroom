@@ -39,7 +39,7 @@ Click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. I
 
 ## How it works
 
-The code is scanned without Claude: imports through TypeScript, Python, Go, PHP, Java and Kotlin, and web requests matched to their endpoints. One read-only `claude -p` call then names the app's parts, and files are described in batches on a faster model. The chart is written to `.chartroom/` in the project, kept out of git.
+The code is scanned without Claude: imports through TypeScript, Python, Go, PHP, Java, Kotlin and Rust, and web requests matched to their endpoints. One read-only `claude -p` call then names the app's parts, and files are described in batches on a faster model. The chart is written to `.chartroom/` in the project, kept out of git.
 
 Everything runs locally, on your own Claude subscription. Claude only gets tools that read: it never changes your code.
 

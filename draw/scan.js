@@ -4,7 +4,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { extract, langOf } from "./extract.js";
-import { aliasesOf, endpointFor, goModuleOf, psr4Of, resolverFor } from "./resolve.js";
+import { aliasesOf, cargoCrateOf, endpointFor, goModuleOf, psr4Of, resolverFor } from "./resolve.js";
 
 // Folders whose files are installed, built or charted, never written: left out even where git
 // keeps them. In a folder git does not know, the usual build and cache folders are left out too.
@@ -85,7 +85,7 @@ export async function scan(folder, { onFile = () => {} } = {}) {
     for (const path of await pathsIn(repo)) {
       const full = repo.path ? `${repo.path}/${path}` : path;
       if (isSkipped(full, repo.isPlain)) continue;
-      if (/(^|\/)((tsconfig[\w.-]*|jsconfig|composer)\.json|go\.mod)$/.test(full)) configs.push(full);
+      if (/(^|\/)((tsconfig[\w.-]*|jsconfig|composer)\.json|go\.mod|Cargo\.toml)$/.test(full)) configs.push(full);
       else if (langOf(full)) listed.push({ path: full, repo: repo.path });
     }
   }
@@ -110,6 +110,7 @@ async function configsOf(root, paths) {
   const aliases = [];
   const goModules = [];
   const psr4 = [];
+  const crates = [];
   for (const path of paths) {
     const text = await readText(join(root, path));
     if (text === null) continue;
@@ -118,9 +119,12 @@ async function configsOf(root, paths) {
       const module = goModuleOf(text, dir);
       if (module) goModules.push(module);
     } else if (path.endsWith("composer.json")) psr4.push(...psr4Of(text, dir));
-    else aliases.push(...aliasesOf(text, dir));
+    else if (path.endsWith("Cargo.toml")) {
+      const crate = cargoCrateOf(text, dir);
+      if (crate) crates.push(crate);
+    } else aliases.push(...aliasesOf(text, dir));
   }
-  return { aliases, goModules, psr4 };
+  return { aliases, goModules, psr4, crates };
 }
 
 async function repoFacts(repos) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { extract, langOf, urlOf } from "../draw/extract.js";
-import { aliasesOf, endpointFor, packageOf, psr4Of, resolverFor, withoutComments } from "../draw/resolve.js";
+import { aliasesOf, cargoCrateOf, endpointFor, packageOf, psr4Of, resolverFor, withoutComments } from "../draw/resolve.js";
 import { connect } from "../draw/scan.js";
 
 describe("extract", () => {
@@ -108,6 +108,41 @@ describe("extract", () => {
     expect(found.namespace).toBe("com.shop.orders");
     expect(found.imports).toEqual([{ spec: "com.shop.billing.Invoice", names: ["Invoice"] }, { spec: "kotlinx.coroutines.flow.Flow", names: ["Flow"] }]);
     expect(found.defs).toEqual(["OrderScreen", "newestFirst", "PAGE_SIZE", "Order", "Orders"]);
+  });
+
+  test("reads Rust's modules, uses and public items at the file's top level only", () => {
+    const found = extract("src/orders.rs", [
+      "//! Orders and refunds.",
+      "pub mod refunds;",
+      "#[cfg(test)]",
+      "mod tests;",
+      "use std::io::{self, Write};",
+      "use crate::billing::{invoice::Invoice, self};",
+      "use super::Config as Settings;",
+      "use serde::{",
+      "    Deserialize,",
+      "    Serialize,",
+      "};",
+      "pub extern crate shop_core as core;",
+      "pub struct Order;",
+      "pub(crate) fn place() {}",
+      "fn private_one() {}",
+      "impl Order {",
+      "    pub fn total(&self) {}",
+      "}",
+      "mod inline {",
+      "    use super::*;",
+      "}",
+      'const HELP: &str = "',
+      'use the --refund flag; to undo";',
+    ].join("\n"));
+    expect(found.lang).toBe("rust");
+    expect(found.doc).toBe("Orders and refunds.");
+    expect(found.imports.map((one) => one.spec)).toEqual([
+      "self::refunds", "self::tests", "std::io", "std::io::Write", "crate::billing::invoice::Invoice", "crate::billing", "super::Config", "serde::Deserialize", "serde::Serialize", "shop_core",
+    ]);
+    expect(found.imports[4].names).toEqual(["Invoice"]);
+    expect(found.defs).toEqual(["refunds", "Order", "place"]);
   });
 
   test("leaves Scala and Groovy unread", () => {
@@ -224,9 +259,36 @@ describe("resolve", () => {
     expect(resolveOwn(petclinic[0], "org.springframework.stereotype.Controller")).toEqual({ files: [], pkg: "org.springframework" });
   });
 
+  test("follows Rust's modules and uses through the crate's folders and the workspace's crates", () => {
+    const rust = ["src/lib.rs", "src/main.rs", "src/orders.rs", "src/orders/refunds.rs", "src/billing/mod.rs", "src/billing/invoice.rs", "tests/checkout.rs", "tests/common/mod.rs", "crates/core/src/lib.rs", "crates/core/src/money.rs"]
+      .map((path) => ({ path, repo: "", lang: "rust" }));
+    const at = (path) => rust.find((file) => file.path === path);
+    const resolveRust = resolverFor(rust, { crates: [cargoCrateOf('[package]\nname = "shop"\n', ""), cargoCrateOf('[package]\nname = "shop-core"\n', "crates/core")] });
+    const leads = (from, spec) => resolveRust(at(from), spec).files;
+    expect(leads("src/lib.rs", "self::orders")).toEqual(["src/orders.rs"]);
+    expect(leads("src/orders.rs", "self::refunds")).toEqual(["src/orders/refunds.rs"]);
+    expect(leads("src/billing/mod.rs", "self::invoice")).toEqual(["src/billing/invoice.rs"]);
+    expect(leads("src/orders/refunds.rs", "super::Order")).toEqual(["src/orders.rs"]);
+    expect(leads("src/orders/refunds.rs", "crate::billing::invoice::Invoice")).toEqual(["src/billing/invoice.rs"]);
+    expect(leads("src/orders/refunds.rs", "crate::Config")).toEqual(["src/lib.rs"]);
+    expect(leads("src/lib.rs", "billing::invoice")).toEqual(["src/billing/invoice.rs"]);
+    expect(leads("src/main.rs", "shop::orders::Order")).toEqual(["src/orders.rs"]);
+    expect(leads("src/orders.rs", "shop_core::money::Money")).toEqual(["crates/core/src/money.rs"]);
+    expect(leads("tests/checkout.rs", "self::common")).toEqual(["tests/common/mod.rs"]);
+    expect(resolveRust(at("src/orders.rs"), "serde::Serialize")).toEqual({ files: [], pkg: "serde" });
+    expect(resolveRust(at("src/orders.rs"), "std::io::Write")).toEqual({ files: [], pkg: null });
+  });
+
+  test("names a crate as its code uses it, and none for a workspace's own Cargo.toml", () => {
+    expect(cargoCrateOf('[package]\nname = "grep-searcher"\nversion = "0.1.0"\n\n[dependencies]\nname = "not-this"\n', "crates/searcher")).toEqual({ dir: "crates/searcher", name: "grep_searcher" });
+    expect(cargoCrateOf('[package]\nname = "ripgrep"\n\n[lib]\nname = "rg"\n\n[[bin]]\nname = "rg-cli"\n', "")).toEqual({ dir: "", name: "rg" });
+    expect(cargoCrateOf('[workspace]\nmembers = ["crates/*"]\n', "")).toBeNull();
+  });
+
   test("names packages as their registries do", () => {
     expect([packageOf("@sendgrid/mail/lib", "js"), packageOf("stripe", "js"), packageOf("fs", "js"), packageOf("github.com/gin-gonic/gin/render", "go")]).toEqual(["@sendgrid/mail", "stripe", null, "github.com/gin-gonic/gin"]);
     expect([packageOf("com.stripe.model.Customer", "jvm"), packageOf("dagger.Module", "jvm"), packageOf("kotlinx.coroutines.flow.*", "jvm"), packageOf("kotlin.collections.List", "jvm"), packageOf("android.os.Bundle", "jvm")]).toEqual(["com.stripe", "dagger", "kotlinx.coroutines", null, null]);
+    expect([packageOf("tokio::sync::mpsc", "rust"), packageOf("::serde_json::Value", "rust"), packageOf("std::io", "rust"), packageOf("crate::orders", "rust")]).toEqual(["tokio", "serde_json", null, null]);
   });
 });
 
@@ -289,5 +351,23 @@ describe("connect", () => {
       "app/src/main/kotlin/orders/OrderScreen.kt > app/src/main/kotlin/orders/data/OrderRepository.kt",
     ]);
     expect(project.files.find((file) => file.path.endsWith("Invoice.java")).packages).toEqual(["com.stripe"]);
+  });
+
+  test("links a Rust workspace's files through their modules and uses", () => {
+    const sources = {
+      "src/lib.rs": "pub mod orders;\nmod billing;\n",
+      "src/orders.rs": "use crate::billing::charge;\nuse shop_core::Money;\nuse tokio::sync::mpsc;\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n}\n",
+      "src/billing.rs": "pub fn charge() {}\n",
+      "crates/core/src/lib.rs": "pub struct Money;\n",
+    };
+    const files = Object.entries(sources).map(([path, text]) => ({ path, repo: "", ...extract(path, text) }));
+    const project = connect(files, resolverFor(files, { crates: [cargoCrateOf('[package]\nname = "shop"\n', ""), cargoCrateOf('[package]\nname = "shop-core"\n', "crates/core")] }));
+    expect(project.links.map((link) => `${link.a} > ${link.b} ${link.labels.join(", ")}`)).toEqual([
+      "src/lib.rs > src/orders.rs orders",
+      "src/lib.rs > src/billing.rs billing",
+      "src/orders.rs > src/billing.rs charge",
+      "src/orders.rs > crates/core/src/lib.rs Money",
+    ]);
+    expect(project.files.find((file) => file.path === "src/orders.rs").packages).toEqual(["tokio"]);
   });
 });

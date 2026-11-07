@@ -6,6 +6,8 @@ const JS_EXTS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "vue", "s
 const NODE_BUILTINS = new Set(["assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dns", "events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks", "process", "querystring", "readline", "stream", "string_decoder", "timers", "tls", "url", "util", "v8", "vm", "worker_threads", "zlib"]);
 // The packages Java, Kotlin and Android come with, which name no outside package.
 const JVM_PLATFORM = new Set(["java", "javax", "kotlin", "jdk", "android"]);
+// Rust's own crates, and the words a path starts with inside a crate.
+const RUST_OWN = new Set(["std", "core", "alloc", "proc_macro", "test", "crate", "self", "super"]);
 const PYTHON_STDLIB = new Set(["abc", "argparse", "asyncio", "base64", "collections", "contextlib", "copy", "csv", "dataclasses", "datetime", "decimal", "email", "enum", "functools", "glob", "hashlib", "hmac", "http", "importlib", "inspect", "io", "itertools", "json", "logging", "math", "operator", "os", "pathlib", "pickle", "random", "re", "secrets", "shutil", "signal", "socket", "sqlite3", "string", "subprocess", "sys", "tempfile", "textwrap", "threading", "time", "traceback", "typing", "unittest", "urllib", "uuid", "warnings", "zoneinfo", "__future__"]);
 
 export const dirOf = (path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -41,16 +43,22 @@ export function packageOf(spec, lang) {
     const folders = firstClass > 0 ? parts.slice(0, firstClass) : parts;
     return JVM_PLATFORM.has(parts[0]) ? null : folders.slice(0, 2).join(".");
   }
+  if (lang === "rust") {
+    const name = spec.replace(/^::/, "").split("::")[0];
+    return RUST_OWN.has(name) ? null : name;
+  }
   return null;
 }
 
 // The resolver for a project: given a file and one of its imports, the files it leads to, or the
 // package it names. `aliases` are the TypeScript paths of each folder with a tsconfig, `goModules`
-// the module of each folder with a go.mod; a file uses those of the folders it is in, nearest first.
-export function resolverFor(files, { aliases = [], goModules = [], psr4 = [] } = {}) {
+// the module of each folder with a go.mod, `crates` the Rust crate of each folder with a Cargo.toml;
+// a file uses those of the folders it is in, nearest first.
+export function resolverFor(files, { aliases = [], goModules = [], psr4 = [], crates = [] } = {}) {
   const paths = new Set(files.map((file) => file.path));
   const pythonModules = pythonIndex(files);
   const jvm = jvmIndex(files);
+  const rust = { paths, crates, rootDirs: files.filter((file) => /(^|\/)(lib|main)\.rs$/.test(file.path)).map((file) => dirOf(file.path)) };
   const goDirs = new Map();
   for (const file of files) {
     if (file.lang !== "go" || file.path.endsWith("_test.go")) continue;
@@ -70,6 +78,7 @@ export function resolverFor(files, { aliases = [], goModules = [], psr4 = [] } =
     if (file.lang === "go") return resolveGo(spec, goDirs, around(goModules, file.path)[0]);
     if (file.lang === "php") return resolvePhp(spec, paths, around(psr4, file.path));
     if (file.lang === "jvm") return resolveJvm(spec, jvm);
+    if (file.lang === "rust") return resolveRust(file, spec, rust);
     return { files: [], pkg: null };
   };
 }
@@ -201,6 +210,68 @@ function resolveJvm(spec, { names, packages, roots }) {
   }
   const isOwn = roots.some((root) => name === root || name.startsWith(`${root}.`));
   return { files: [], pkg: isOwn ? null : packageOf(spec, "jvm") };
+}
+
+// A Cargo.toml's crate: the name its code is used by (its library's name, else its package's, with
+// - as _), for the files in `dir`. A workspace's own Cargo.toml names none.
+export function cargoCrateOf(cargoText, dir) {
+  const names = {};
+  let section = "";
+  for (const line of cargoText.split("\n")) {
+    const header = /^\s*\[\[?\s*([\w.-]+)/.exec(line);
+    if (header) section = header[1];
+    const name = /^\s*name\s*=\s*["']([^"']+)["']/.exec(line)?.[1];
+    if (name && (section === "package" || section === "lib")) names[section] = name;
+  }
+  const name = names.lib ?? names.package;
+  return name ? { dir, name: name.replaceAll("-", "_") } : null;
+}
+
+// Where a Rust file's module path starts, and the path: a lib.rs, main.rs or build.rs is a crate's
+// root, as is a file right in a crate's tests/, examples/, benches/ or src/bin/. Any other file is
+// a module of the nearest root above it: src/a/b.rs and src/a/b/mod.rs are both a::b.
+function rustModuleOf(path, crateDir, rootDirs) {
+  if (/(^|\/)(lib|main|build)\.rs$/.test(path)) return { base: dirOf(path), path: [], isRoot: true };
+  const own = /^(tests|examples|benches|src\/bin)\//.exec(crateDir ? path.slice(crateDir.length + 1) : path)?.[1];
+  const nearest = rootDirs.filter((dir) => !dir || path.startsWith(`${dir}/`)).sort((a, b) => b.length - a.length)[0];
+  const base = own ? joinPath(crateDir, own) : nearest ?? dirOf(path);
+  if (dirOf(path) === base && own) return { base, path: [], isRoot: true };
+  const segments = path.slice(base ? base.length + 1 : 0).replace(/\.rs$/, "").split("/");
+  return { base, path: segments.at(-1) === "mod" ? segments.slice(0, -1) : segments, isRoot: false };
+}
+
+// A use path leads to the file of the deepest module it names: crate:: from the crate's root,
+// self:: and super:: from the file's own module, a crate's name into that crate of the project, and
+// a first name that is a module inside the file's own (as `mod scan; use scan::Progress;`) there.
+// An item of a crate's root (crate::Config) leads to its root file. Any other first name is a
+// crate from outside, or one of Rust's own.
+function resolveRust(file, spec, { paths, crates, rootDirs }) {
+  const crate = around(crates, file.path)[0];
+  const here = rustModuleOf(file.path, crate?.dir ?? "", rootDirs);
+  const segments = spec.replace(/^::/, "").split("::").filter((one) => one && one !== "*");
+  // The file of the deepest module along `path` that is at least `least` names long.
+  const moduleFile = (base, path, least = 1) => {
+    for (let end = path.length; end >= least; end -= 1) {
+      const at = joinPath(base, ...path.slice(0, end));
+      if (paths.has(`${at}.rs`)) return `${at}.rs`;
+      if (paths.has(`${at}/mod.rs`)) return `${at}/mod.rs`;
+    }
+    return null;
+  };
+  const library = (base) => [joinPath(base, "lib.rs"), joinPath(base, "main.rs")].find((one) => paths.has(one)) ?? null;
+  const ownRoot = here.isRoot ? file.path : library(here.base);
+  const into = (base, path, root) => ({ files: [moduleFile(base, path) ?? root].filter(Boolean), pkg: null });
+  let up = 0;
+  while (segments[up] === "super") up += 1;
+  const [first, ...rest] = segments;
+  if (first === "crate") return into(here.base, rest, ownRoot);
+  if (first === "self") return into(here.base, [...here.path, ...rest], file.path);
+  if (up) return into(here.base, [...here.path.slice(0, Math.max(0, here.path.length - up)), ...segments.slice(up)], ownRoot);
+  const named = crates.find((one) => one.name === first);
+  if (named) return into(joinPath(named.dir, "src"), rest, library(joinPath(named.dir, "src")));
+  const inside = moduleFile(here.base, [...here.path, ...segments], here.path.length + 1);
+  if (inside) return { files: [inside], pkg: null };
+  return { files: [], pkg: packageOf(spec, "rust") };
 }
 
 function resolveGo(spec, goDirs, found) {
