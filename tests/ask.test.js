@@ -69,10 +69,10 @@ describe("draw/ask.js", () => {
   });
 
   test("asks on the model chosen, and on the person's default with none, and keeps which", () => {
-    expect(ask(1003, { question: "On Opus?", card: null, focus: null, model: "opus" }).record).toMatchObject({ status: "done", model: "opus" });
+    expect(ask(1003, { question: "On Opus?", card: null, focus: null, model: "claude-opus-5-5" }).record).toMatchObject({ status: "done", model: "claude-opus-5-5" });
     expect(ask(1004, { question: "On the default?", card: null, focus: null }).record).toMatchObject({ status: "done", model: null });
     const log = readFileSync(claudeLog, "utf8");
-    expect(log).toContain("ask On Opus? [on opus]");
+    expect(log).toContain("ask On Opus? [on claude-opus-5-5]");
     expect(log).toContain("ask On the default? [on default]");
   });
 
