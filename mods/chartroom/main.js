@@ -12,7 +12,8 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView } from "./chart.js";
+import { chartView, detailsView, minimapView, searchView } from "./chart.js";
+import { searchChart, searchIndexOf } from "./search.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
@@ -153,6 +154,12 @@ export default class Chartroom extends View {
       this.isTyping = false;
       cx.notify();
     });
+    // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
+    // keys are on, and the index of the chart it searches, made when the search opens.
+    Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
+    this.searchField = InputState.new({ placeholder: "Find a part, file or endpoint" });
+    this.searchField.on("change", (_e, cx) => this.searchFor(cx));
+    this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
     // The minimap: a drag on it underway, whether the pointer is on it, and the wide view's heading height.
@@ -286,6 +293,7 @@ export default class Chartroom extends View {
 
   async close() {
     this.question?.release();
+    this.searchField?.release();
   }
 
   // The project's latest answers, read again while one is still being answered. The answer asked
@@ -892,6 +900,49 @@ export default class Chartroom extends View {
     this.selected = cards[next].id;
   }
 
+  // The search in place of the chart, its field taking the keyboard; and the chart again. The index
+  // is made here, once per chart, so a key typed only searches it.
+  openSearch(cx) {
+    this.indexNow();
+    Object.assign(this, { isSearching: true, found: [], foundCursor: 0 });
+    this.searchField.set_value("");
+    this.searchField.focus();
+    cx.notify();
+  }
+
+  closeSearch(cx) {
+    this.isSearching = false;
+    this.handle.focus();
+    cx.notify();
+  }
+
+  // What the field finds on the chart showing.
+  searchFor(cx) {
+    if (!this.chart || !this.isSearching) return;
+    this.found = searchChart(this.indexNow(), this.searchField.value());
+    this.foundCursor = 0;
+    cx.notify();
+  }
+
+  // The search index of the chart showing, made again only when the chart is read again.
+  indexNow() {
+    if (this.indexedChart !== this.chart) Object.assign(this, { searchIndex: searchIndexOf(this.chart), indexedChart: this.chart });
+    return this.searchIndex;
+  }
+
+  // To a card found: the level it sits on, with the card picked, its lines lit and its details
+  // shown, as if walked there.
+  jumpTo(one, cx) {
+    if (!one || !this.chart) return;
+    this.closeSearch(cx);
+    this.focus = one.focus !== null && this.chart.nodes.has(one.focus) ? one.focus : null;
+    this.selected = one.ref;
+    this.enter(cx);
+    this.light(cx);
+    this.explainSoon(cx);
+    if (this.detailsFolded) this.foldDetails(false, cx);
+  }
+
   projects() {
     return projectsOf(spaces(), this.picked);
   }
@@ -899,6 +950,7 @@ export default class Chartroom extends View {
   // The list of projects in place of the chart, or the chart again.
   togglePicker(cx) {
     this.isPicking = !this.isPicking;
+    this.isSearching = false;
     if (this.isPicking) {
       const rows = pickerRows(this.projects());
       const current = rows.findIndex((row) => (row.kind === "follow" ? !this.pinned : row.kind === "project" && row.project.folder === this.pinned?.folder && row.project.on === (this.pinned.on ?? null)));
@@ -988,6 +1040,14 @@ export default class Chartroom extends View {
   }
 
   onKey(e, cx) {
+    // Keys typed into the search are the search's, but for the ones that move through what it found.
+    if (this.isSearching) {
+      if (this.searchKey(e.key, cx)) {
+        cx.stop_propagation();
+        cx.notify();
+      }
+      return;
+    }
     // Keys typed into the question are the question's; esc leaves it.
     if (this.isTyping) {
       if (e.key === "escape") {
@@ -998,10 +1058,19 @@ export default class Chartroom extends View {
     }
     const m = e.modifiers ?? {};
     if (m.platform || m.control || m.alt) return;
-    if (this.isPicking ? this.pickerKey(e.key, cx) : this.chartKey(e.key, cx)) {
+    // `/` by the character it types, as on an AZERTY keyboard it takes shift.
+    const k = e.key_char === "/" ? "/" : e.key;
+    if (this.isPicking ? this.pickerKey(k, cx) : this.chartKey(k, cx)) {
       cx.stop_propagation();
       cx.notify();
     }
+  }
+
+  searchKey(k, cx) {
+    if (k === "down" || k === "up") this.foundCursor = Math.max(0, Math.min(this.found.length - 1, this.foundCursor + (k === "down" ? 1 : -1)));
+    else if (k === "escape") this.closeSearch(cx);
+    else return false;
+    return true;
   }
 
   pickerKey(k, cx) {
@@ -1028,6 +1097,7 @@ export default class Chartroom extends View {
         this.hide();
       }
     } else if (k === "p") this.togglePicker(cx);
+    else if (view && k === "/") this.openSearch(cx);
     else if (k === "f" && !isTab()) this.openFullSize();
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
@@ -1077,6 +1147,10 @@ export default class Chartroom extends View {
 
   body(t, view) {
     if (this.isPicking) return this.picker(t);
+    if (view && this.isSearching) {
+      const onPick = (one, cx) => this.jumpTo(one, cx);
+      return searchView({ t, field: this.searchField, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick });
+    }
     if (view) return this.chartBody(t, view);
     if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
     return this.empty(t);
@@ -1302,11 +1376,12 @@ export default class Chartroom extends View {
   // Only the keys that do something here.
   hints(view) {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
+    if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc back";
     const close = isTab() ? [] : ["esc close"];
     if (this.isDrawing && !view) return [stepWords(this.progress), "s stop", ...close].join("  ·  ");
     if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", ...close].filter(Boolean).join("  ·  ");
     const card = this.cardOf(view, this.selected);
-    const keys = ["↑↓ pick"];
+    const keys = ["↑↓ pick", "/ search"];
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");
