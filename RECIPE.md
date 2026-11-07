@@ -72,7 +72,7 @@ card to see what it uses and what uses it. Double-click one with › to go insid
 name, a pill with its kind word, **Inside ›** when it opens, and its summary. Then **Explain this** (10px
 radius, accent frame at alpha `55` on accent at alpha `10`, a search icon, "Your Claude reads it: what it
 does, how it works, what to watch out for", an `e` keycap); once asked, an 8px box with a 6px accent dot,
-"Explained by your Claude", "N lit on the chart" and the Markdown text. For a file: its path, line count and
+"Explained by your Claude · Sonnet" (the model it ran on), "N lit on the chart" and the Markdown text. For a file: its path, line count and
 routes. Then "Uses  N" and "Used by  N", one 28px row per card: icon, name, what the link carries ("3
 links" when nothing is named). Then "Asked  N", at most 8 answer cards (8px radius, `t.background`, accent
 frame while lit): the question in medium with the model it was asked on beside it in 11px `t.dim`

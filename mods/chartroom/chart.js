@@ -384,7 +384,7 @@ function explained(t, explain) {
   return [v_flex().mx(4).mt(6).mb(4).px(11).py(9).gap(6).rounded(8).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "12"))
     .child(h_flex().gap(6).items_center()
       .child(div().size(6).flex_none().rounded_full().bg(t.accent))
-      .child(div().flex_1().text_size(TYPE.small).font_medium().text_color(t.accent).child("Explained by your Claude"))
+      .child(div().flex_1().text_size(TYPE.small).font_medium().text_color(t.accent).child(one.model ? `Explained by your Claude · ${modelLabel(one.model)}` : "Explained by your Claude"))
       .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().flex_none().text_size(TYPE.small).text_color(t.dim).child(`${one.cards.length} lit on the chart`))))
     .child(body)];
 }
