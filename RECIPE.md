@@ -72,7 +72,7 @@ card to see what it uses and what uses it. Double-click one with › to go insid
 name, a pill with its kind word, **Inside ›** when it opens, and its summary. Then **Explain this** (10px
 radius, accent frame at alpha `55` on accent at alpha `10`, a search icon, "Your Claude reads it: what it
 does, how it works, what to watch out for", an `e` keycap); once asked, an 8px box with a 6px accent dot,
-"Explained by your Claude", "N lit on the chart" and the Markdown text. For a file: its path, line count and
+"Explained by your Claude · Sonnet" (the model it ran on), "N lit on the chart" and the Markdown text. For a file: its path, line count and
 routes. Then "Uses  N" and "Used by  N", one 28px row per card: icon, name, what the link carries ("3
 links" when nothing is named). Then "Asked  N", at most 8 answer cards (8px radius, `t.background`, accent
 frame while lit): the question in medium with the model it was asked on beside it in 11px `t.dim`
@@ -83,7 +83,8 @@ frame while typing; placeholder "What does it do? What breaks if it goes?"), the
 **Ask** button. The model button is 30px high with an 8px radius and a 1px `t.border` frame (`t.accent`
 while open): the model chosen in 12px `t.muted` and a 12px chevron-down. Open, a list hangs over it from its
 right edge, 170px wide on `t.background` with a `t.border` frame and an 8px radius: "Ask on" in 11px medium
-`t.muted`, then a 28px row per model (Default, Opus, Sonnet), `t.selected` under the keys and a
+`t.muted`, then a 28px row per model (Default, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Sonnet 4.6),
+`t.selected` under the keys and a
 `t.accent` check on the chosen one.
 
 The details' type (`TYPE` in `chart.js`): names 13px; a summary, an explanation, an answer and the field
@@ -180,7 +181,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
   `Input`), `searchView`. `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the
   first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
-  `models.js`: `MODELS` (Default, Opus and Sonnet), `isModelName`, `modelLabel`; draw/ask.js
+  `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
+  `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
   lowercased words, made once per chart when the search opens) and `searchChart(index, query)` (the best
   20, kept while looking rather than sorting every match).
