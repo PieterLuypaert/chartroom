@@ -136,21 +136,22 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   they arrive; wheel zoom follows at once.
 - **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
   there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
-- **Search.** `/` or a click on the header's search box opens the search. The box becomes its field, where
-  it was (`t.accent` frame, 12px, placeholder "Search the chart"), and under it a dropdown drops over the
-  chart, which stays: 4px below the box, as wide as the panel allows up to 420px (at least 220px), 8px
-  radius, `t.border` frame, `t.background`, a large shadow, 4px inside. It holds at most 20 rows of two lines
-  (40px, 6px radius, `t.selected` under the cursor), ten before it scrolls: the kind's 14px icon, the name in
-  12px `t.foreground`, an endpoint's route chip, and on the right what it is in 11px `t.dim` ("server",
-  "file", "endpoint"); under them, in 11px `t.dim`, where the card sits ("Server › Orders", or the app's name
-  at the top). Every word typed must be in a card's name, its path or route, or what it does; names that
-  start with the query come first, then names that hold it, then paths and routes, then the rest, parts
-  before files, shorter names first. `↑↓` moves, `↵` or a press on a row goes to the card's level with it
+- **Search.** `/` or a click on the header's search box opens the search. The box becomes its field, where it
+  was (`t.accent` frame, 12px, placeholder "Search the chart"), and under it a dropdown drops over the chart,
+  which stays: 4px below the box, as wide as the panel allows up to 420px (at least 220px), 8px radius,
+  `t.border` frame, `t.background`, a large shadow, 4px inside. It holds at most 20 rows of two lines (40px,
+  6px radius, `t.selected` under the cursor), ten before it scrolls, with a scrollbar (a virtual list: the
+  wheel scrolls it, not the chart under it, and `↑↓` keep the cursor's row in view): the kind's 14px icon, the
+  name in 12px `t.foreground`, an endpoint's route chip, and on the right what it is in 11px `t.dim`
+  ("server", "file", "endpoint"); under them, in 11px `t.dim`, where the card sits ("Server › Orders", or the
+  app's name at the top). Every word typed must be in a card's name, its path or route, or what it does; names
+  that start with the query come first, then names that hold it, then paths and routes, then the rest, parts
+  before files, shorter names first. `↑↓` moves, `↵` or a click on a row goes to the card's level with it
   picked, its lines lit and its details shown (an endpoint goes to its file), and `esc` closes. A press
-  anywhere else, the chart included, closes it too, as the field loses the keyboard. Before typing: "A
-  part's or file's name, a folder or file path, or a route such as GET /orders."; with nothing found:
-  "Nothing on the chart matches." `/` is read by the character typed, so on AZERTY it works with shift. It
-  needs no Claude, so it works on a remote project too.
+  anywhere else, the chart included, closes it too, as the field loses the keyboard. Before typing: "A part's
+  or file's name, a folder or file path, or a route such as GET /orders."; with nothing found: "Nothing on the
+  chart matches." `/` is read by the character typed, so on AZERTY it works with shift. It needs no Claude, so
+  it works on a remote project too.
 - **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the
   cards it names light up. Explanations are kept per card until its code or links change: an update that
