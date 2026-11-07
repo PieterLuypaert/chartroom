@@ -19,7 +19,8 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
   pin icon when the project was picked rather than followed, the chart's name, a chevron-down). While a
   chart shows, the **search box** follows (24px high, 220px wide, 6px radius, `t.border` frame, 11.5px
   `t.muted`): a 13px search icon, "Search" and a `/` keycap (16px, 4px radius, 10.5px `t.dim`), with the
-  tooltip "Search the chart (/)". It is the first to give way when the header is short, down to its icon.
+  tooltip "Search the chart (/)"; 320px while open. It is the first to give way when the header is short,
+  down to its icon.
   Then a spacer, a 13px spinner while the chart is read again, and **↻ Update** (26px, 12px `t.muted`; `t.accent`
   with a 1px accent frame when the code has moved on). In the side panel only, two 26px icon buttons
   follow: **full size** (square) and **close** (x).
@@ -135,17 +136,21 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   they arrive; wheel zoom follows at once.
 - **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
   there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
-- **Search.** `/` or a click on the header's search box swaps the chart for a search. The box becomes its
-  field, where it was (`t.accent` frame, 12px, placeholder "Search the chart"), and in the chart's place
-  come at most 20 rows (30px, 7px radius, `t.selected` under the
-  cursor): the kind's icon, the name, an endpoint's route chip, and in 11.5px `t.dim` where the card sits
-  ("Server › Orders", or the app's name at the top). Every word typed must be in a card's name, its path or
-  route, or what it does; names that start with the query come first, then names that hold it, then paths and
-  routes, then the rest, parts before files, shorter names first. `↑↓` moves, `↵` or a click goes to the
-  card's level with it picked, its lines lit and its details shown (an endpoint goes to its file), and `esc`
-  goes back. Before typing: "A part's or file's name, a folder or file path, or a route such as GET /orders.";
-  with nothing found: "Nothing on the chart matches." `/` is read by the character typed, so on AZERTY it
-  works with shift. It needs no Claude, so it works on a remote project too.
+- **Search.** `/` or a click on the header's search box opens the search. The box becomes its field, where
+  it was (`t.accent` frame, 12px, placeholder "Search the chart"), and under it a dropdown drops over the
+  chart, which stays: 4px below the box, as wide as the panel allows up to 420px (at least 220px), 8px
+  radius, `t.border` frame, `t.background`, a large shadow, 4px inside. It holds at most 20 rows of two lines
+  (40px, 6px radius, `t.selected` under the cursor), ten before it scrolls: the kind's 14px icon, the name in
+  12px `t.foreground`, an endpoint's route chip, and on the right what it is in 11px `t.dim` ("server",
+  "file", "endpoint"); under them, in 11px `t.dim`, where the card sits ("Server › Orders", or the app's name
+  at the top). Every word typed must be in a card's name, its path or route, or what it does; names that
+  start with the query come first, then names that hold it, then paths and routes, then the rest, parts
+  before files, shorter names first. `↑↓` moves, `↵` or a press on a row goes to the card's level with it
+  picked, its lines lit and its details shown (an endpoint goes to its file), and `esc` closes. A press
+  anywhere else, the chart included, closes it too, as the field loses the keyboard. Before typing: "A
+  part's or file's name, a folder or file path, or a route such as GET /orders."; with nothing found:
+  "Nothing on the chart matches." `/` is read by the character typed, so on AZERTY it works with shift. It
+  needs no Claude, so it works on a remote project too.
 - **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the
   cards it names light up. Explanations are kept per card until its code or links change: an update that
@@ -183,7 +188,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
-  `Input`), `searchBox` (the header's box and field, with `SEARCH_KEYS`), `searchView`. `minimap.js`:
+  `Input`), `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown). `minimap.js`:
   `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the first-drawing card, update strip, changed
   strip, `endedWords`. `projects.js`: picker rows and badges.
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
