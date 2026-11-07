@@ -115,6 +115,21 @@ describe("layOut", () => {
   test("is empty for a level with nothing on it", () => {
     expect(layOut({ inside: [], outside: [], lines: [] }, 460)).toEqual({ cards: [], curves: [], height: SIZES.pad });
   });
+
+  test("lays out a level as big as a 6000-file chart's biggest, loops and all: every card once, apart, and every line", () => {
+    let seed = 7;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const inside = Array.from({ length: 800 }, (_, at) => card(`f:src/file-${at}.ts`));
+    const lines = new Map();
+    while (lines.size < 2400) {
+      const [from, to] = [inside[Math.floor(next() * 800)].id, inside[Math.floor(next() * 800)].id];
+      if (from !== to) lines.set(`${from}>${to}`, line(from, to));
+    }
+    const laid = layOut({ inside, outside: [], lines: [...lines.values()] }, 1200);
+    expect(new Set(laid.cards.map((box) => box.id)).size).toBe(800);
+    expect(laid.cards.filter((a, i) => laid.cards.some((b, j) => j > i && overlaps(a, b))).length).toBe(0);
+    expect(laid.curves.length).toBe(2400);
+  });
 });
 
 describe("fromElk", () => {
