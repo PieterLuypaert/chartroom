@@ -108,9 +108,14 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   same level and card; × (or `esc` at the top level) closes it and gives the keyboard back to the pane
   that had it.
 - **Which project.** It follows the focused pane's folder in the active space. The project button or `p`
-  swaps the chart for a picker: "Follow the focused space"; each space's project with a badge (a spinner
-  while checking, then "chart", "no chart" or "not reached"); and "Choose a folder…" (the system folder
-  picker; the last 8 chosen are kept). `↑↓` moves, `↵` charts the row, `esc` or `p` goes back. A picked
+  opens a dropdown under the button, over the chart, which stays (the search dropdown's frame: as wide as
+  the panel allows up to 440px, at least 260px). Under "Chart a project" (11px medium `t.dim`), rows of two
+  lines (40px, 6px radius, `t.selected` under the cursor), each with a 14px icon and a 13px accent check on
+  the one charted: "Follow the focused space" over the focused folder; then, between thin `t.border`
+  lines, each space's project, its name in 12px `t.foreground` with a badge on the right (a spinner while
+  checking, then "chart", "no chart" or "not reached") over its folder in 11px `t.dim`; and "Choose a
+  folder…" (32px; the system folder picker; the last 8 chosen are kept). `↑↓` moves, `↵` or a click charts
+  the row, `esc` or `p` closes it, and so does a press outside it, which goes no further. A picked
   project shows a pin and stays picked after a restart. The chart lives in `.chartroom/` of the folder or the
   nearest folder above it, short of home.
 - **No chart yet.** "No chart of <name> yet", a paragraph on what drawing does, a solid **Draw the chart**
@@ -189,9 +194,10 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
-  `Input`), `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown). `minimap.js`:
-  `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the first-drawing card, update strip, changed
-  strip, `endedWords`. `projects.js`: picker rows and badges.
+  `Input`), `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown), `dropdownFrame`
+  (the frame both dropdowns share). `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`.
+  `drawing.js`: the first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: the
+  picker's rows, badges and dropdown.
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
   `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
