@@ -142,8 +142,8 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   the command `full` / `chartroom.full`. `{tab: true, project, focus, selected}` is the full-size tab. No
   props is the side panel (block id `chartroom`).
 - `model.js` reads `.chartroom/chart.json`, schema `chartroom/chart@1`: `meta` {generatedAt, root, repos
-  [{path, head}]}, `project` {name, summary}, `nodes` [{id, parent, label, kind, summary, stats}], `files`
-  [{p, n, loc, name, d}], `routes` [{f, m, p, name}], `links` [{a, b, w, labels}]; refs are `n:<id>`,
+  [{path, head}]}, `project` {name, summary}, `nodes` [{id, parent, label, kind, summary, stats, rev}], `files`
+  [{p, n, loc, name, d, rev}], `routes` [{f, m, p, name}], `links` [{a, b, w, labels}]; refs are `n:<id>`,
   `f:<path>`, `r:<index>`. `levelOf(chart, focus)` gives the inside cards (child parts plus the focus's own
   files), the outside cards linked to them (`side` "above" when they only use the level, else "below"), and
   one line per pair and direction with a weight and labels.
