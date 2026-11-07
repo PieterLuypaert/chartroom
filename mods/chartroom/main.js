@@ -14,6 +14,7 @@ import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readCha
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
+import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
@@ -64,6 +65,8 @@ const CHANGED_MS = 30000;
 
 // The details folded away (d), remembered.
 const FOLDED_SETTING = "detailsFolded";
+// The model a question is asked on, kept per copy (none: the person's Claude Code default).
+const ASK_MODEL = "askModel";
 // While a question is being answered, its answer is looked for this often.
 const ASK_POLL_MS = 1500;
 // A press that moves this far is a drag of the chart, not a click on a card. The chart moves
@@ -158,6 +161,10 @@ export default class Chartroom extends View {
       this.isTyping = false;
       cx.notify();
     });
+    // The model a question is asked on, and its list in the ask bar: whether it is open, the row the
+    // keys are on, and the keyboard's place on the list.
+    const model = stored(ASK_MODEL, null);
+    Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelList: cx.focus_handle() });
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
@@ -298,6 +305,7 @@ export default class Chartroom extends View {
   async close() {
     this.question?.release();
     this.searchField?.release();
+    this.modelList?.release();
   }
 
   // The project's latest answers, read again while one is still being answered. The answer asked
@@ -334,12 +342,13 @@ export default class Chartroom extends View {
     if (!question || !this.chart || !folder || this.place?.on) return;
     const { selected: card, focus } = this;
     const id = String(Date.now());
+    const model = this.askModel;
     this.question.set_value("");
-    this.asks = [{ id, question, card, focus, status: "asking" }, ...this.asks];
+    this.asks = [{ id, question, card, focus, model, status: "asking" }, ...this.asks];
     this.waitingFor = id;
     cx.spawn(async (cx) => {
       try {
-        const started = await exec("sh", ["-c", START_ASK, "ask", folder, await this.script("ask.js"), id, JSON.stringify({ question, card, focus })]);
+        const started = await exec("sh", ["-c", START_ASK, "ask", folder, await this.script("ask.js"), id, JSON.stringify({ question, card, focus, model })]);
         if (started.code !== 0) throw new Error(started.stderr.trim() || `starting it ended with ${started.code}`);
         cx.timer.after(ASK_POLL_MS, (cx) => this.loadAsks(cx));
       } catch (error) {
@@ -448,7 +457,46 @@ export default class Chartroom extends View {
       onAsk: (cx) => this.ask(cx),
       onShow: (one, cx) => this.showAnswer(one, cx),
       onStop: (one, cx) => this.stopAsk(one, cx),
+      model: this.askModel,
+      isModelOpen: this.isModelOpen,
+      modelCursor: this.modelCursor,
+      modelList: this.modelList,
+      onModelOpen: (isOpen, cx) => this.openModels(isOpen, cx),
+      onModel: (id, cx) => this.pickModel(id, cx),
+      onModelKey: (e, cx) => this.modelKey(e, cx),
     };
+  }
+
+  // The model list opened, with the keyboard on it and the chosen model's row under the keys, or
+  // closed, the keyboard back on the panel.
+  openModels(isOpen, cx) {
+    this.isModelOpen = isOpen;
+    if (isOpen) {
+      this.modelCursor = Math.max(0, MODELS.findIndex((one) => one.id === this.askModel));
+      this.modelList.focus();
+    } else this.handle.focus();
+    cx.notify();
+  }
+
+  // A model picked: the next question is asked on it, here and after a restart, and the keyboard
+  // goes to the question.
+  pickModel(id, cx) {
+    this.askModel = id;
+    store(ASK_MODEL, id);
+    this.isModelOpen = false;
+    this.question.focus();
+    cx.notify();
+  }
+
+  // Keys on the open list: Up and Down move through it, Enter picks, Escape closes.
+  modelKey(e, cx) {
+    const k = e.key;
+    if (k === "down" || k === "up") this.modelCursor = (this.modelCursor + (k === "down" ? 1 : MODELS.length - 1)) % MODELS.length;
+    else if (k === "enter") this.pickModel(MODELS[this.modelCursor].id, cx);
+    else if (k === "escape") this.openModels(false, cx);
+    else return;
+    cx.stop_propagation();
+    cx.notify();
   }
 
   show(folder, text, length, cx) {
@@ -1090,6 +1138,8 @@ export default class Chartroom extends View {
   }
 
   onKey(e, cx) {
+    // The model list takes its own keys; the chart does nothing while it is open.
+    if (this.isModelOpen) return;
     // Keys typed into the search are the search's, but for the ones that move through what it found.
     if (this.isSearching) {
       if (this.searchKey(e.key, cx)) {
@@ -1152,6 +1202,7 @@ export default class Chartroom extends View {
     else if (k === "u") this.draw(cx);
     else if (k === "s") this.stop(cx);
     else if (view && k === "a" && this.folder && !this.place?.on) this.question.focus();
+    else if (view && k === "m" && this.folder && !this.place?.on) this.openModels(true, cx);
     else if (view && k === "d") this.foldDetails(!this.detailsFolded, cx);
     else if (view && k === "e") {
       if (this.explanation?.status !== "asking" && this.explanation?.status !== "done") this.explainSoon(cx, true);
@@ -1430,6 +1481,7 @@ export default class Chartroom extends View {
   hints(view) {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
     if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc back";
+    if (view && this.isModelOpen) return "↑↓ pick  ·  ↵ ask on it  ·  esc back";
     const close = isTab() ? [] : ["esc close"];
     if (this.isDrawing && !view) return [stepWords(this.progress), "s stop", ...close].join("  ·  ");
     if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", ...close].filter(Boolean).join("  ·  ");
@@ -1438,7 +1490,7 @@ export default class Chartroom extends View {
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");
-    if (this.folder && !this.place?.on) keys.push("a ask", "e explain");
+    if (this.folder && !this.place?.on) keys.push("a ask", "m model", "e explain");
     keys.push(`d details ${this.detailsFolded ? "off" : "on"}`);
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
     if (!isTab()) keys.push("f full size");

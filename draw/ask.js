@@ -1,6 +1,6 @@
 // Answers a question about a project's chart with the person's own Claude:
 //
-//   bun draw/ask.js <folder> <id> '{"question": "...", "card": "n:api" | "f:path" | null, "focus": "api" | null}'
+//   bun draw/ask.js <folder> <id> '{"question": "...", "card": "n:api" | "f:path" | null, "focus": "api" | null, "model": "opus" | null}'
 //
 // The Chartroom panel runs it in the background, as an answer can take longer than the panel may
 // wait for a program. It writes .chartroom/asks/<id>.json at once (asking, with its pid to stop
@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { askClaude, stopAll } from "./claude.js";
 import { detailsOf, levelOf, readChart, revOf } from "../mods/chartroom/model.js";
 import { explainKey } from "../mods/chartroom/find.js";
+import { isModelName } from "../mods/chartroom/models.js";
 
 const ASK_TOOLS = ["Read", "Grep", "Glob"];
 // How much of the chart goes along, and how many answers are kept: each card's and each level's
@@ -111,14 +112,17 @@ async function prune(dir) {
 async function main() {
   const [folder, id, payload] = process.argv.slice(2);
   if (!folder || !/^[0-9a-f]+$/.test(id ?? "") || !payload) throw new Error("usage: bun draw/ask.js <folder> <id> '<question as JSON>'");
-  const { question: asked, card = null, focus = null, explain = false } = JSON.parse(payload);
+  const { question: asked, card = null, focus = null, explain = false, model: chosen = null } = JSON.parse(payload);
   if (explain && (!card || id !== explainKey(card))) throw new Error("an explanation is kept under its card's key");
   const question = explain ? EXPLAIN : asked;
+  // An explanation is always asked on its own model; a question on the one the person chose (null:
+  // their Claude Code's default).
+  const model = explain ? EXPLAIN_MODEL : chosen;
   const dir = join(folder, ".chartroom", explain ? "explains" : "asks");
   const path = join(dir, `${id}.json`);
   await mkdir(dir, { recursive: true });
   await writeFile(join(folder, ".chartroom", ".gitignore"), "*\n");
-  const record = { id, question, card, focus, explain, status: "asking", pid: process.pid, startedAt: new Date().toISOString() };
+  const record = { id, question, card, focus, explain, model, status: "asking", pid: process.pid, startedAt: new Date().toISOString() };
   await writeWhole(path, record);
   process.on("SIGTERM", async () => {
     stopAll();
@@ -126,8 +130,9 @@ async function main() {
     process.exit(1);
   });
   try {
+    if (!explain && !isModelName(chosen)) throw new Error(`${JSON.stringify(chosen)} is not a model the Chartroom asks on`);
     const chart = await chartIn(folder);
-    const answer = await askClaude({ cwd: folder, prompt: askPrompt(chart, { question, card, focus }), schema: ASK_SCHEMA, tools: ASK_TOOLS, model: explain ? EXPLAIN_MODEL : null });
+    const answer = await askClaude({ cwd: folder, prompt: askPrompt(chart, { question, card, focus }), schema: ASK_SCHEMA, tools: ASK_TOOLS, model });
     await writeWhole(path, { ...record, status: "done", chart: chart.meta.generatedAt ?? null, rev: revOf(chart, card), ...checkAnswer(chart, answer), endedAt: new Date().toISOString() });
   } catch (error) {
     console.error(error);

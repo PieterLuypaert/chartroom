@@ -1,7 +1,8 @@
 // The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with the lines
 // between them, and beside or under it the card picked, with what it uses and what uses it.
 import { div, svg, PathBuilder } from "gpui-kit";
-import { h_flex, Input, TextView, v_flex } from "gpui-base";
+import { h_flex, Input, Popup, TextView, v_flex } from "gpui-base";
+import { MODELS, modelLabel } from "./models.js";
 
 // Herdr's own icons: the app draws no asset reached through the link install.sh makes.
 const ICONS = "mods/workspace-chrome";
@@ -284,6 +285,7 @@ function answerCard(t, one, ask) {
     .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.cursor_pointer().hover((s) => s.border_color(t.accent)).on_click((_e, cx) => ask.onShow(one, cx)))
     .child(h_flex().gap(6).items_start()
       .child(div().flex_1().min_w(0).text_size(TYPE.strong).font_medium().text_color(t.foreground).child(one.question))
+      .when("model" in one, (el) => el.child(div().flex_none().pt(1).text_size(TYPE.small).text_color(t.dim).child(modelLabel(one.model))))
       .when(one.status === "asking", (el) => el.child(div().id(`stop-${one.id}`).flex_none().text_size(TYPE.small).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
         .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onStop(one, cx)).child("Stop"))))
     .child(body)
@@ -299,8 +301,39 @@ function askBar(t, ask) {
     .child(h_flex().gap(6)
       .child(div().id("ask-field").flex_1().min_w(0).h(30).px(10).flex().items_center().rounded(8).border_1().border_color(ask.isTyping ? t.accent : t.border)
         .cursor_text().on_mouse_down("left", stopPress).child(Input.new(ask.field).h_full().text_size(TYPE.read).text_color(t.foreground)))
+      .child(modelPicker(t, ask))
       .child(div().id("ask").flex_none().h(30).px(12).flex().items_center().rounded(8).bg(t.solid).text_color(t.solid_foreground).text_size(TYPE.label).cursor_pointer()
         .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onAsk(cx)).child("Ask")));
+}
+
+// The model the question is asked on: a button in the ask bar's look, showing the choice, that
+// opens the list over it, each model a row as the project picker draws them, the chosen one checked.
+// The open state is the panel's own: a click on the button opens the list, Up, Down, Enter and
+// Escape are the list's, and a press anywhere outside it closes it (and goes no further, so a press
+// on the button closes it rather than opening it again).
+function modelPicker(t, ask) {
+  const chosen = MODELS.find((one) => one.id === ask.model) ?? MODELS[0];
+  const trigger = h_flex().id("ask-model").flex_none().h(30).px(10).gap(5).items_center().rounded(8).border_1()
+    .border_color(ask.isModelOpen ? t.accent : t.border).text_size(TYPE.label).text_color(ask.isModelOpen ? t.foreground : t.muted)
+    .role("combo_box").cursor_pointer().hover((s) => s.text_color(t.foreground)).tooltip("The model your question is asked on (m)")
+    .on_click((_e, cx) => ask.onModelOpen(true, cx))
+    .child(chosen.label)
+    .child(svg(`${ICONS}/chevron-down.svg`).size(12));
+  const row = (one, index) => h_flex().id(`ask-model-${index}`).h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
+    .role("list_box_option").when(index === ask.modelCursor, (el) => el.bg(t.selected).aria_active_descendant()).hover((s) => s.bg(t.hover))
+    .on_mouse_down("left", stopPress)
+    .on_click((_e, cx) => ask.onModel(one.id, cx))
+    .child(div().flex_1().text_size(TYPE.label).text_color(t.foreground).child(one.label))
+    .child(one.id === chosen.id ? svg(`${ICONS}/check.svg`).size(13).flex_none().text_color(t.accent) : div().w(13).flex_none());
+  const list = v_flex().id("ask-models").role("list_box").track_focus(ask.modelList).w(170).p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.background)
+    .on_key_down((e, cx) => ask.onModelKey(e, cx))
+    .on_mouse_down_out((_e, cx) => {
+      cx.stop_propagation();
+      ask.onModelOpen(false, cx);
+    })
+    .child(div().px(8).pt(2).pb(2).text_size(TYPE.small).font_medium().text_color(t.muted).child("Ask on"))
+    .children(MODELS.map(row));
+  return Popup.new("ask-model-list", trigger).anchor("bottom_right").when(ask.isModelOpen, (el) => el.content(list));
 }
 
 function levelDetails(t, level, chart) {

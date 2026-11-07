@@ -68,6 +68,21 @@ describe("draw/ask.js", () => {
     expect(record).toMatchObject({ status: "failed", error: expect.stringContaining("Not logged in") });
   });
 
+  test("asks on the model chosen, and on the person's default with none, and keeps which", () => {
+    expect(ask(1003, { question: "On Opus?", card: null, focus: null, model: "opus" }).record).toMatchObject({ status: "done", model: "opus" });
+    expect(ask(1004, { question: "On the default?", card: null, focus: null }).record).toMatchObject({ status: "done", model: null });
+    const log = readFileSync(claudeLog, "utf8");
+    expect(log).toContain("ask On Opus? [on opus]");
+    expect(log).toContain("ask On the default? [on default]");
+  });
+
+  test("refuses a model it does not know, without asking", () => {
+    const { code, record } = ask(1005, { question: "On what?", card: null, focus: null, model: "gpt-9" });
+    expect(code).toBe(1);
+    expect(record).toMatchObject({ status: "failed", error: '"gpt-9" is not a model the Chartroom asks on' });
+    expect(readFileSync(claudeLog, "utf8")).not.toContain("ask On what?");
+  });
+
   describe("keeping answers", () => {
     const dir = join(project, ".chartroom", "asks");
     const kept = () => readdirSync(dir).filter((name) => name.endsWith(".json")).map((name) => parseInt(name, 10)).sort((a, b) => a - b);
@@ -105,6 +120,15 @@ describe("draw/ask.js explaining a card", () => {
     const record = JSON.parse(readFileSync(join(project, ".chartroom", "explains", `${key}.json`), "utf8"));
     expect(record).toMatchObject({ id: key, card: "n:api", explain: true, status: "done", cards: ["n:site", "n:site.pages"] });
     expect(record.question).toContain("Explain this card");
+  });
+
+  test("explains on its own model, whatever model a question would be asked on", async () => {
+    const { explainKey } = await import("../mods/chartroom/find.js");
+    const key = explainKey("n:jobs");
+    const run = Bun.spawnSync(["bun", join(import.meta.dir, "..", "draw", "ask.js"), project, key, JSON.stringify({ explain: true, card: "n:jobs", focus: null, model: "opus" })], { env: { ...process.env, CHARTROOM_CLAUDE: fakeClaude, FAKE_CLAUDE_LOG: claudeLog, CHARTROOM_DESCRIBE_MODEL: "" } });
+    expect(run.exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(join(project, ".chartroom", "explains", `${key}.json`), "utf8")).model).toBe("sonnet");
+    expect(readFileSync(claudeLog, "utf8").trim().split("\n").at(-1)).toEndWith("[on sonnet]");
   });
 
   test("refuses an explanation under another card's key", () => {

@@ -33,10 +33,12 @@ function described() {
   };
 }
 
-// A question: an answer naming the first two cards listed, and one the chart does not have.
+// A question: an answer naming the first two cards listed, and one the chart does not have. The log
+// says which model it was asked on ("default" with no --model).
 function answered() {
   const cards = [...prompt.matchAll(/^CARD (\S+)/gm)].map((m) => m[1]);
-  log(`ask ${/^Question: (.*)$/m.exec(prompt)?.[1] ?? ""}`);
+  const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : "default";
+  log(`ask ${/^Question: (.*)$/m.exec(prompt)?.[1] ?? ""} [on ${model}]`);
   return { answer: `  It is about ${cards.slice(0, 2).join(" and ")}.  `, cards: [...cards.slice(0, 2), "n:not-on-the-chart"] };
 }
 
