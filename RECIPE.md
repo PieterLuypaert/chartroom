@@ -16,8 +16,11 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
 
 - **Header, 42px** (16px left, 8px right padding): "Chartroom" in semibold, then the project button (24px
   high, at most 220px wide, 1px `t.border` frame, `t.accent` while the picker is open, 11.5px `t.muted`; a
-  pin icon when the project was picked rather than followed, the chart's name, a chevron-down). Then a
-  spacer, a 13px spinner while the chart is read again, and **↻ Update** (26px, 12px `t.muted`; `t.accent`
+  pin icon when the project was picked rather than followed, the chart's name, a chevron-down). While a
+  chart shows, the **search box** follows (24px high, 220px wide, 6px radius, `t.border` frame, 11.5px
+  `t.muted`): a 13px search icon, "Search" and a `/` keycap (16px, 4px radius, 10.5px `t.dim`), with the
+  tooltip "Search the chart (/)". It is the first to give way when the header is short, down to its icon.
+  Then a spacer, a 13px spinner while the chart is read again, and **↻ Update** (26px, 12px `t.muted`; `t.accent`
   with a 1px accent frame when the code has moved on). In the side panel only, two 26px icon buttons
   follow: **full size** (square) and **close** (x).
 - **Trail, 34px** (12px): a back chevron below the top level, then crumbs from the app's name down,
@@ -132,8 +135,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   they arrive; wheel zoom follows at once.
 - **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
   there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
-- **Search.** `/` swaps the chart for a search: a 32px field (8px radius, `t.accent` frame, a search icon,
-  placeholder "Find a part, file or endpoint"), then at most 20 rows (30px, 7px radius, `t.selected` under the
+- **Search.** `/` or a click on the header's search box swaps the chart for a search. The box becomes its
+  field, where it was (`t.accent` frame, 12px, placeholder "Search the chart"), and in the chart's place
+  come at most 20 rows (30px, 7px radius, `t.selected` under the
   cursor): the kind's icon, the name, an endpoint's route chip, and in 11.5px `t.dim` where the card sits
   ("Server › Orders", or the app's name at the top). Every word typed must be in a card's name, its path or
   route, or what it does; names that start with the query come first, then names that hold it, then paths and
@@ -179,8 +183,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
-  `Input`), `searchView`. `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the
-  first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
+  `Input`), `searchBox` (the header's box and field, with `SEARCH_KEYS`), `searchView`. `minimap.js`:
+  `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the first-drawing card, update strip, changed
+  strip, `endedWords`. `projects.js`: picker rows and badges.
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
   `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and

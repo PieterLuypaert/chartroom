@@ -12,7 +12,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchView } from "./chart.js";
+import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -168,7 +168,7 @@ export default class Chartroom extends View {
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
-    this.searchField = InputState.new({ placeholder: "Find a part, file or endpoint" });
+    this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
     cx.bind_keys(SEARCH_KEYS);
@@ -1242,7 +1242,7 @@ export default class Chartroom extends View {
       .on_size_change((size, cx) => this.resized(size, cx))
       .on_key_down((e, cx) => this.onKey(e, cx))
       .on_mouse_down("left", () => this.handle.focus())
-      .child(this.header(t))
+      .child(this.header(t, view))
       .when(Boolean(view), (el) => el.child(this.trail(t, view.level)))
       .when(Boolean(view) && this.isDrawing, (el) => el.child(updateStrip({ t, progress: this.progress, onStop: (cx) => this.stop(cx) })))
       .when(Boolean(view) && !this.isDrawing && this.isBehind(), (el) => el.child(changedStrip({ t, changed: this.changed, isOwn: this.kind === "chartroom", onUpdate: (cx) => this.draw(cx) })))
@@ -1255,11 +1255,7 @@ export default class Chartroom extends View {
 
   body(t, view) {
     if (this.isPicking) return this.picker(t);
-    if (view && this.isSearching) {
-      const onPick = (one, cx) => this.jumpTo(one, cx);
-      return searchView({ t, field: this.searchField, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick,
-        onMove: (by, cx) => this.moveFound(by, cx), onClose: (cx) => this.closeSearch(cx) });
-    }
+    if (view && this.isSearching) return searchView({ t, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick: (one, cx) => this.jumpTo(one, cx) });
     if (view) return this.chartBody(t, view);
     if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
     return this.empty(t);
@@ -1287,19 +1283,21 @@ export default class Chartroom extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip).on_click(action).child(icon);
   }
 
-  // As the Changes panel's header, in line with the tab bar: its name, the project it charts (a
-  // button to pick another), and its buttons.
   // Whether the code moved on since the chart.
   isBehind() {
     return Boolean(this.changed && (this.changed.commits > 0 || this.changed.files > 0));
   }
 
-  header(t) {
+  // As the Changes panel's header, in line with the tab bar: its name, the project it charts (a
+  // button to pick another), the search while a chart shows, and its buttons.
+  header(t, view) {
     const canUpdate = Boolean(this.chart) && !this.isDrawing && !this.isPicking && !this.place?.on;
     const isOwn = this.kind === "chartroom";
     return h_flex().h(42).flex_none().pl(16).pr(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Chartroom"))
       .child(this.projectButton(t))
+      .when(Boolean(view), (el) => el.child(searchBox({ t, field: this.searchField, isOpen: this.isSearching, onOpen: (cx) => this.openSearch(cx),
+        onMove: (by, cx) => this.moveFound(by, cx), onClose: (cx) => this.closeSearch(cx) })))
       .child(div().flex_1())
       .when(this.isReading && Boolean(this.chart), (el) => el.child(svg(`${ICONS}/spinner.svg`).size(13).flex_none().text_color(t.muted).spin(900)))
       .when(canUpdate, (el) => el.child(this.updateButton(t, isOwn)))
