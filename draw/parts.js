@@ -51,7 +51,7 @@ export function partsPrompt(scan, earlier = null) {
     ...(earlier ? ["", "The chart had these parts before. Keep their ids, names and patterns where they still fit, and change only what the code no longer matches:", JSON.stringify(earlier.parts.map(({ id, parent, label, paths }) => ({ id, parent, label, paths })))] : []),
     "",
     `Repos: ${scan.repos.map((repo) => repo.path || ".").join(", ")}`,
-    `Code files: ${scan.files.length}${scan.isCut ? " (the first ones only: the project has more)" : ""}`,
+    `Code files: ${scan.files.length}`,
     "",
     "Folders, with their code files and lines:",
     ...treeOf(scan.files),

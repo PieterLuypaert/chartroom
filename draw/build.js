@@ -27,7 +27,7 @@ export function buildChart({ scan, parts, owner, described, generatedAt = new Da
   const revs = revsOf({ nodes, files, links, hashOf: new Map(scan.files.map((file) => [file.path, file.hash])) });
   return {
     schema: CHART_SCHEMA,
-    meta: { generatedAt, root: scan.root, rootName: scan.name, repos: scan.repos, isCut: scan.isCut, drawnBy: "claude", counts: { files: scan.files.length, loc: scan.files.reduce((sum, file) => sum + file.loc, 0), unassigned: unassigned.length } },
+    meta: { generatedAt, root: scan.root, rootName: scan.name, repos: scan.repos, drawnBy: "claude", counts: { files: scan.files.length, loc: scan.files.reduce((sum, file) => sum + file.loc, 0), unassigned: unassigned.length } },
     project: parts.project,
     nodes: nodes.map((node) => ({ ...node, rev: revs.get(`n:${node.id}`) })),
     files: files.map((file) => ({ ...file, rev: revs.get(`f:${file.p}`) })),

@@ -20,7 +20,7 @@ const PAGE_TO_LIST = { a: "web/page.ts", b: "api/orders/list.ts", k: "http", w: 
 
 function drawn({ hashes = HASHES, links = [PAGE_TO_LIST], generatedAt = "2026-11-07T10:00:00.000Z" } = {}) {
   const files = Object.entries(hashes).map(([path, hash]) => ({ path, repo: "", lang: "js", loc: 10, hash, doc: "", packages: [], hosts: [] }));
-  const scan = { root: "/code/shop", name: "shop", repos: [], isCut: false, files, routes: [], links };
+  const scan = { root: "/code/shop", name: "shop", repos: [], files, routes: [], links };
   const chart = buildChart({ scan, parts: PARTS, owner: OWNER, described: { files: {}, endpoints: {} }, generatedAt });
   return Object.fromEntries([...chart.nodes.map((node) => [`n:${node.id}`, node.rev]), ...chart.files.map((file) => [`f:${file.p}`, file.rev])]);
 }
