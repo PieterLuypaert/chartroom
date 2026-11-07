@@ -162,9 +162,9 @@ export default class Chartroom extends View {
       cx.notify();
     });
     // The model a question is asked on, and its list in the ask bar: whether it is open, the row the
-    // keys are on, and the keyboard's place on its button and on the list.
+    // keys are on, and the keyboard's place on the list.
     const model = stored(ASK_MODEL, null);
-    Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelButton: cx.focus_handle(), modelList: cx.focus_handle() });
+    Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelList: cx.focus_handle() });
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
@@ -305,7 +305,6 @@ export default class Chartroom extends View {
   async close() {
     this.question?.release();
     this.searchField?.release();
-    this.modelButton?.release();
     this.modelList?.release();
   }
 
@@ -461,7 +460,6 @@ export default class Chartroom extends View {
       model: this.askModel,
       isModelOpen: this.isModelOpen,
       modelCursor: this.modelCursor,
-      modelButton: this.modelButton,
       modelList: this.modelList,
       onModelOpen: (isOpen, cx) => this.openModels(isOpen, cx),
       onModel: (id, cx) => this.pickModel(id, cx),

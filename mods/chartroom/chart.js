@@ -1,7 +1,7 @@
 // The Chartroom's drawing, in the look of the Herdr app's own panels: a level as cards with the lines
 // between them, and beside or under it the card picked, with what it uses and what uses it.
 import { div, svg, PathBuilder } from "gpui-kit";
-import { h_flex, Input, Popup, Select, TextView, v_flex } from "gpui-base";
+import { h_flex, Input, Popup, TextView, v_flex } from "gpui-base";
 import { MODELS, modelLabel } from "./models.js";
 
 // Herdr's own icons: the app draws no asset reached through the link install.sh makes.
@@ -308,13 +308,15 @@ function askBar(t, ask) {
 
 // The model the question is asked on: a button in the ask bar's look, showing the choice, that
 // opens the list over it, each model a row as the project picker draws them, the chosen one checked.
-// Select gives the keyboard and the list's semantics; Up, Down and Enter are the list's own.
+// The open state is the panel's own: a click on the button opens the list, Up, Down, Enter and
+// Escape are the list's, and a press anywhere outside it closes it (and goes no further, so a press
+// on the button closes it rather than opening it again).
 function modelPicker(t, ask) {
   const chosen = MODELS.find((one) => one.id === ask.model) ?? MODELS[0];
   const trigger = h_flex().id("ask-model").flex_none().h(30).px(10).gap(5).items_center().rounded(8).border_1()
     .border_color(ask.isModelOpen ? t.accent : t.border).text_size(TYPE.label).text_color(ask.isModelOpen ? t.foreground : t.muted)
-    .cursor_pointer().hover((s) => s.text_color(t.foreground)).tooltip("The model your question is asked on (m)")
-    .on_mouse_down("left", stopPress)
+    .role("combo_box").cursor_pointer().hover((s) => s.text_color(t.foreground)).tooltip("The model your question is asked on (m)")
+    .on_click((_e, cx) => ask.onModelOpen(true, cx))
     .child(chosen.label)
     .child(svg(`${ICONS}/chevron-down.svg`).size(12));
   const row = (one, index) => h_flex().id(`ask-model-${index}`).h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
@@ -325,12 +327,13 @@ function modelPicker(t, ask) {
     .child(one.id === chosen.id ? svg(`${ICONS}/check.svg`).size(13).flex_none().text_color(t.accent) : div().w(13).flex_none());
   const list = v_flex().id("ask-models").role("list_box").track_focus(ask.modelList).w(170).p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.background)
     .on_key_down((e, cx) => ask.onModelKey(e, cx))
+    .on_mouse_down_out((_e, cx) => {
+      cx.stop_propagation();
+      ask.onModelOpen(false, cx);
+    })
     .child(div().px(8).pt(2).pb(2).text_size(TYPE.small).font_medium().text_color(t.muted).child("Ask on"))
     .children(MODELS.map(row));
-  return Select.new("ask-model-select").accessibility_label("The model your question is asked on").open(ask.isModelOpen)
-    .track_focus(ask.modelButton).content_focus_handle(ask.modelList)
-    .on_open_change((isOpen, cx) => ask.onModelOpen(isOpen, cx))
-    .child(Popup.new("ask-model-list", trigger).anchor("bottom_right").when(ask.isModelOpen, (el) => el.content(list)));
+  return Popup.new("ask-model-list", trigger).anchor("bottom_right").when(ask.isModelOpen, (el) => el.content(list));
 }
 
 function levelDetails(t, level, chart) {
