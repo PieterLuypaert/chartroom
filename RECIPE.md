@@ -74,10 +74,16 @@ does, how it works, what to watch out for", an `e` keycap); once asked, an 8px b
 "Explained by your Claude", "N lit on the chart" and the Markdown text. For a file: its path, line count and
 routes. Then "Uses  N" and "Used by  N", one 28px row per card: icon, name, what the link carries ("3
 links" when nothing is named). Then "Asked  N", at most 8 answer cards (8px radius, `t.background`, accent
-frame while lit): the question in 12.5px medium, then the answer in Markdown, "Your Claude is reading the
+frame while lit): the question in medium, then the answer in Markdown, "Your Claude is reading the
 code…" with **Stop**, or "No answer: …" in `t.blocked`; a finished answer that names cards adds "3 on the
 chart: click to light them". At the foot: "Ask your Claude about <card or level>", a 30px field (accent
 frame while typing; placeholder "What does it do? What breaks if it goes?") and a solid **Ask** button.
+
+The details' type (`TYPE` in `chart.js`): names 13px; a summary, an explanation, an answer and the field
+13px with a 20px line height; a question asked and "Explain this" 13px; what a line carries, the hint, "Your
+Claude reads it…" and "Not explained" 12px; the headings ("Uses", "Used by", "Asked") 11px medium in
+`t.muted`, and a path, the pill, a method chip, "Explained by your Claude" and "lit on the chart" 11px.
+Nothing in the details is under 11px. Herdr has no text size setting for mods: its zoom scales them all.
 
 **Tab bar button** (a 108px block): 26px high, 6px radius, a 14px layers icon and "Chartroom" in 12px;
 `t.muted` on `t.chrome`, or `t.foreground` on `t.selected` while the space shows its Chartroom tab.
