@@ -75,10 +75,16 @@ does, how it works, what to watch out for", an `e` keycap); once asked, an 8px b
 "Explained by your Claude", "N lit on the chart" and the Markdown text. For a file: its path, line count and
 routes. Then "Uses  N" and "Used by  N", one 28px row per card: icon, name, what the link carries ("3
 links" when nothing is named). Then "Asked  N", at most 8 answer cards (8px radius, `t.background`, accent
-frame while lit): the question in medium, then the answer in Markdown, "Your Claude is reading the
+frame while lit): the question in medium with the model it was asked on beside it in 11px `t.dim`
+("Opus"), then the answer in Markdown, "Your Claude is reading the
 code…" with **Stop**, or "No answer: …" in `t.blocked`; a finished answer that names cards adds "3 on the
 chart: click to light them". At the foot: "Ask your Claude about <card or level>", a 30px field (accent
-frame while typing; placeholder "What does it do? What breaks if it goes?") and a solid **Ask** button.
+frame while typing; placeholder "What does it do? What breaks if it goes?"), the model button and a solid
+**Ask** button. The model button is 30px high with an 8px radius and a 1px `t.border` frame (`t.accent`
+while open): the model chosen in 12px `t.muted` and a 12px chevron-down. Open, a list hangs over it from its
+right edge, 170px wide on `t.background` with a `t.border` frame and an 8px radius: "Ask on" in 11px medium
+`t.muted`, then a 28px row per model (Default, Fable, Opus, Sonnet, Haiku), `t.selected` under the keys and a
+`t.accent` check on the chosen one.
 
 The details' type (`TYPE` in `chart.js`): names 13px; a summary, an explanation, an answer and the field
 13px with a 20px line height; a question asked and "Explain this" 13px; what a line carries, the hint, "Your
@@ -142,7 +148,10 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - **Ask.** `a` focuses the field, `↵` or **Ask** sends, `esc` leaves the field. Answers are listed per card
   (a picked card lists only the questions about it, from any level) and per level (with nothing picked,
   only that level's own). Clicking a finished answer lights the cards it names; again turns them off.
-  **Stop** ends one still running.
+  **Stop** ends one still running. The model button or `m` opens the list of models: `↑↓` move, `↵` or a
+  click picks, `esc` closes. A question is asked on the model picked (Default: the person's Claude Code
+  default, no `--model`), remembered per copy in `localStorage`. "Explain this" always runs on `sonnet` (or
+  `$CHARTROOM_DESCRIBE_MODEL`), whatever the list says.
 - **Details.** `d` folds them away or back, remembered. Picking a new card with the mouse unfolds them.
 - **Remote project** (a space on another machine): the chart is read there every 15s (no folder watch) and
   the changed check runs there too. Drawing, asking and explaining are off ("Drawing a chart needs the
@@ -171,7 +180,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
   `Input`), `searchView`. `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the
   first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
-  `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
+  `models.js`: `MODELS` (Default and the claude CLI's aliases), `isModelName`, `modelLabel`; draw/ask.js
+  reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
   lowercased words, made once per chart when the search opens) and `searchChart(index, query)` (the best
   20, kept while looking rather than sorting every match).
 - `find.js`: shell snippets run as `exec("sh", ["-c", SNIPPET, name, ...args], { on })`. `FIND_MAP` (chart,
@@ -192,7 +202,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `claude.js` runs `claude -p --output-format json --no-session-persistence --strict-mcp-config
   --setting-sources "" --tools … --json-schema …`. `ask.js <folder> <id> <json>` writes
   `.chartroom/asks/<id>.json` (or `explains/<hash>.json` for an explanation, model `sonnet`), status asking
-  then done, failed or stopped, with `answer`, up to 8 `cards` and the card's `rev`. `lay.js '<levels json>'` runs ELK
+  then done, failed or stopped, with the `model` it was asked on, `answer`, up to 8 `cards` and the card's
+  `rev`. A question's `model` (in its JSON) must be one `models.js` lists or a full name (`claude-…`), or the
+  answer fails saying so. `lay.js '<levels json>'` runs ELK
   (layered, partitioned by band, orthogonal edges, fixed-side ports) and prints `{layouts}`.
 - `keys.json`: `"global": { "cmd-alt-f": "chartroom.full", "cmd-alt-shift-f": "layout.toggle:chartroom" }`.
 - `install.sh [layout]` needs `jq`, `bun` and `herdr-app`. It symlinks `~/.config/herdr-app/mods/chartroom`
