@@ -4,6 +4,16 @@ import { aliasesOf, cargoCrateOf, endpointFor, packageOf, psr4Of, resolverFor, w
 import { connect } from "../draw/scan.js";
 
 describe("extract", () => {
+  test("numbers the lines of a big file's requests and routes as fast as a small one's", () => {
+    const text = Array.from({ length: 60000 }, (_, index) => `export const get${index} = () => fetch("/api/tides/${index}");`).join("\n");
+    const started = performance.now();
+    const found = extract("src/client.ts", text);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(found.requests).toHaveLength(60000);
+    expect(found.requests.at(-1)).toMatchObject({ path: "/api/tides/59999", line: 60000 });
+    expect(extract("app.py", `import x\n\n@app.get("/a")\ndef a(): pass\n\n\n@app.post("/b")\ndef b(): pass\n`).routes.map((route) => route.line)).toEqual([3, 7]);
+  });
+
   test("reads a TypeScript file's imports, exports, routes and requests", () => {
     const found = extract("api/src/orders.ts", [
       "/** Orders: checkout and history. */",

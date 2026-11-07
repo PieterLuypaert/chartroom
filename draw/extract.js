@@ -15,7 +15,26 @@ export function langOf(path) {
 }
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-const lineAt = (text, index) => text.slice(0, index).split("\n").length;
+// The line an index of a text is on, by halving over where its lines start, which are counted once
+// per text and only when asked: counting the lines before each match instead grows with the square
+// of a big file's size.
+function lineFinder(text) {
+  let starts = null;
+  return (index) => {
+    if (!starts) {
+      starts = [0];
+      for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
+    }
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= index) low = middle;
+      else high = middle - 1;
+    }
+    return low + 1;
+  };
+}
 const all = (pattern, text) => [...text.matchAll(pattern)];
 
 export function extract(path, text) {
@@ -89,12 +108,13 @@ function importNames(clause) {
 }
 
 function jsRoutes(path, text) {
+  const lineAt = lineFinder(text);
   const routes = all(/\b(?:app|router|server|fastify|hono|routes|r)\.(get|post|put|patch|delete|all)\(\s*(['"`])(\/[^'"`]*)\2/gi, text)
-    .map((m) => ({ m: m[1].toUpperCase() === "ALL" ? "ANY" : m[1].toUpperCase(), p: m[3], line: lineAt(text, m.index) }));
+    .map((m) => ({ m: m[1].toUpperCase() === "ALL" ? "ANY" : m[1].toUpperCase(), p: m[3], line: lineAt(m.index) }));
   const appRoute = /(?:^|\/)app\/(.*?)\/?route\.[cm]?[jt]sx?$/.exec(path);
   if (appRoute) {
     const url = nextPath(appRoute[1]);
-    for (const m of all(/export\s+(?:async\s+function|function|const)\s+(GET|POST|PUT|PATCH|DELETE)\b/g, text)) routes.push({ m: m[1], p: url, line: lineAt(text, m.index) });
+    for (const m of all(/export\s+(?:async\s+function|function|const)\s+(GET|POST|PUT|PATCH|DELETE)\b/g, text)) routes.push({ m: m[1], p: url, line: lineAt(m.index) });
   }
   const pagesApi = /(?:^|\/)pages\/(api\/.*?)\.[cm]?[jt]sx?$/.exec(path);
   if (pagesApi) routes.push({ m: "ANY", p: nextPath(pagesApi[1].replace(/\/index$/, "")), line: 1 });
@@ -108,10 +128,11 @@ function nextPath(folders) {
 }
 
 function jsRequests(text) {
+  const lineAt = lineFinder(text);
   const requests = [];
   const add = (method, raw, index) => {
     const url = urlOf(raw);
-    if (url) requests.push({ m: method, ...url, line: lineAt(text, index) });
+    if (url) requests.push({ m: method, ...url, line: lineAt(index) });
   };
   for (const m of all(/\b(?:fetch|\$fetch|ofetch|useFetch)\(\s*(['"`])([^'"`]+)\1([^)]*)/g, text)) {
     const method = /method:\s*['"](\w+)['"]/.exec(m[3])?.[1]?.toUpperCase();
@@ -122,6 +143,7 @@ function jsRequests(text) {
 }
 
 function extractPython(_path, text) {
+  const lineAt = lineFinder(text);
   const imports = [];
   // `from x import (a,\n b)` runs over lines, as Black and Ruff write long imports.
   for (const m of all(/^[ \t]*from\s+(\.*[\w.]*)\s+import\s+(\([^)]*\)|[^\n]*)/gm, text)) {
@@ -136,12 +158,12 @@ function extractPython(_path, text) {
   for (const m of all(/@\w+\.(get|post|put|patch|delete|route|api_route)\(\s*['"](\/[^'"]*)['"]([^)]*)\)/g, text)) {
     const listed = /methods\s*=\s*\[\s*['"](\w+)['"]/.exec(m[3])?.[1]?.toUpperCase();
     const method = ["route", "api_route"].includes(m[1]) ? listed ?? "GET" : m[1].toUpperCase();
-    routes.push({ m: method, p: m[2].replace(/<(?:\w+:)?(\w+)>/g, ":$1").replace(/\{(\w+)\}/g, ":$1"), line: lineAt(text, m.index) });
+    routes.push({ m: method, p: m[2].replace(/<(?:\w+:)?(\w+)>/g, ":$1").replace(/\{(\w+)\}/g, ":$1"), line: lineAt(m.index) });
   }
   const requests = [];
   for (const m of all(/\b(?:requests|httpx|client|session|self\.client|self\.session)\.(get|post|put|patch|delete)\(\s*f?(['"])([^'"]+)\2/g, text)) {
     const url = urlOf(m[3]);
-    if (url) requests.push({ m: m[1].toUpperCase(), ...url, line: lineAt(text, m.index) });
+    if (url) requests.push({ m: m[1].toUpperCase(), ...url, line: lineAt(m.index) });
   }
   // A FastAPI router's or a Flask blueprint's own prefix, and the routers mounted elsewhere.
   const prefix = /\b(?:APIRouter\([^)]*?\bprefix|Blueprint\([^)]*?\burl_prefix)\s*=\s*['"](\/[^'"]*)['"]/.exec(text)?.[1] ?? "";
@@ -152,6 +174,7 @@ function extractPython(_path, text) {
 // PHP: its `use` lines, its classes, and Symfony's #[Route] attributes or @Route annotations, a
 // class's own route being the start of its methods' routes.
 function extractPhp(_path, text) {
+  const lineAt = lineFinder(text);
   const imports = all(/^use\s+([\w\\]+)(?:\s+as\s+\w+)?\s*;/gm, text).map((m) => ({ spec: m[1], names: [m[1].split("\\").pop()] }));
   const defs = all(/^(?:final\s+|abstract\s+|readonly\s+)*(?:class|interface|trait|enum)\s+(\w+)/gm, text).map((m) => m[1]);
   const classAt = /^(?:final\s+|abstract\s+|readonly\s+)*class\s+\w+/m.exec(text)?.index ?? -1;
@@ -159,7 +182,7 @@ function extractPhp(_path, text) {
     p: m[1],
     m: /methods\s*[:=]\s*[\[{]\s*['"](\w+)['"]/.exec(m[2])?.[1]?.toUpperCase() ?? "ANY",
     isPrefix: m.index < classAt,
-    line: lineAt(text, m.index),
+    line: lineAt(m.index),
   }));
   const prefix = found.find((one) => one.isPrefix)?.p ?? "";
   const routes = found.filter((one) => !one.isPrefix).map((one) => ({ m: one.m, p: `/${[prefix, one.p].join("/").split("/").filter(Boolean).join("/")}`.replace(/\{(\w+)\}/g, ":$1"), line: one.line }));
@@ -231,21 +254,22 @@ function usePaths(tree) {
 }
 
 function extractGo(_path, text) {
+  const lineAt = lineFinder(text);
   const imports = [];
   for (const m of all(/^import\s+(?:\w+\s+)?"([^"]+)"/gm, text)) imports.push({ spec: m[1], names: [] });
   for (const block of all(/^import\s*\(([\s\S]*?)\)/gm, text)) for (const m of all(/"([^"]+)"/g, block[1])) imports.push({ spec: m[1], names: [] });
   const defs = all(/^func\s+(?:\([^)]*\)\s*)?([A-Z]\w*)/gm, text).map((m) => m[1]);
   const routes = [];
-  for (const m of all(/\.(?:HandleFunc|Handle)\(\s*"(?:(GET|POST|PUT|PATCH|DELETE)\s+)?(\/[^"]*)"/g, text)) routes.push({ m: m[1] ?? "ANY", p: m[2], line: lineAt(text, m.index) });
-  for (const m of all(/\.(GET|POST|PUT|PATCH|DELETE|Get|Post|Put|Patch|Delete)\(\s*"(\/[^"]*)"/g, text)) routes.push({ m: m[1].toUpperCase(), p: m[2].replace(/\{(\w+)\}/g, ":$1"), line: lineAt(text, m.index) });
+  for (const m of all(/\.(?:HandleFunc|Handle)\(\s*"(?:(GET|POST|PUT|PATCH|DELETE)\s+)?(\/[^"]*)"/g, text)) routes.push({ m: m[1] ?? "ANY", p: m[2], line: lineAt(m.index) });
+  for (const m of all(/\.(GET|POST|PUT|PATCH|DELETE|Get|Post|Put|Patch|Delete)\(\s*"(\/[^"]*)"/g, text)) routes.push({ m: m[1].toUpperCase(), p: m[2].replace(/\{(\w+)\}/g, ":$1"), line: lineAt(m.index) });
   const requests = [];
   for (const m of all(/http\.(Get|Post)\(\s*"([^"]+)"/g, text)) {
     const url = urlOf(m[2]);
-    if (url) requests.push({ m: m[1].toUpperCase(), ...url, line: lineAt(text, m.index) });
+    if (url) requests.push({ m: m[1].toUpperCase(), ...url, line: lineAt(m.index) });
   }
   for (const m of all(/http\.NewRequest(?:WithContext)?\([^,]*?"?(\w+)"?,\s*"([^"]+)"/g, text)) {
     const url = urlOf(m[2]);
-    if (url) requests.push({ m: METHODS.includes(m[1].toUpperCase()) ? m[1].toUpperCase() : "ANY", ...url, line: lineAt(text, m.index) });
+    if (url) requests.push({ m: METHODS.includes(m[1].toUpperCase()) ? m[1].toUpperCase() : "ANY", ...url, line: lineAt(m.index) });
   }
   return { imports, defs: [...new Set(defs)], routes, requests };
 }
