@@ -10,7 +10,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, pickerItems, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
@@ -170,6 +170,7 @@ export default class Chartroom extends View {
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
     this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.foundScroll = VirtualListScrollHandle.new();
+    this.projectScroll = VirtualListScrollHandle.new();
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
     // A press on the chart, or anywhere else the keyboard goes, closes the search; its rows keep it.
@@ -310,6 +311,7 @@ export default class Chartroom extends View {
     this.question?.release();
     this.searchField?.release();
     this.foundScroll?.release();
+    this.projectScroll?.release();
     this.modelList?.release();
   }
 
@@ -1066,9 +1068,16 @@ export default class Chartroom extends View {
       const rows = pickerRows(this.projects());
       const current = rows.findIndex((row) => (row.kind === "follow" ? !this.pinned : row.kind === "project" && row.project.folder === this.pinned?.folder && row.project.on === (this.pinned.on ?? null)));
       this.cursor = Math.max(0, current);
+      this.showPicked();
       this.checkCharts(cx);
     }
     cx.notify();
+  }
+
+  // Keeps the keys' row in view when it is a project, which scroll; the other rows always show.
+  showPicked() {
+    const item = pickerItems(this.projects()).findIndex((one) => one.row === this.cursor);
+    if (item >= 0) this.projectScroll.scroll_to_item(item);
   }
 
   // Asks each machine which of its projects have a chart, all of a machine's projects at once.
@@ -1195,8 +1204,10 @@ export default class Chartroom extends View {
 
   pickerKey(k, cx) {
     const rows = pickerRows(this.projects());
-    if (k === "down" || k === "up") this.cursor = Math.min(rows.length - 1, Math.max(0, this.cursor + (k === "down" ? 1 : -1)));
-    else if (k === "enter" && rows[this.cursor]) this.onRow(rows[this.cursor], cx);
+    if (k === "down" || k === "up") {
+      this.cursor = Math.min(rows.length - 1, Math.max(0, this.cursor + (k === "down" ? 1 : -1)));
+      this.showPicked();
+    } else if (k === "enter" && rows[this.cursor]) this.onRow(rows[this.cursor], cx);
     else if (k === "escape" || k === "p") this.togglePicker(cx);
     else return false;
     return true;
@@ -1360,15 +1371,17 @@ export default class Chartroom extends View {
   }
 
   picker(t) {
+    const followed = location().cwd;
     return projectList({
       t,
-      rows: pickerRows(this.projects()),
+      projects: this.projects(),
       cursor: this.cursor,
       charted: this.charted,
       pinned: this.pinned,
-      focusedFolder: location().cwd,
+      focused: followed ? baseName(followed) : null,
       home: home(),
       width: Math.max(260, Math.min(440, this.size.width - 32)),
+      scroll: this.projectScroll,
       onRow: (row, cx) => this.onRow(row, cx),
       onClose: (cx) => this.isPicking && this.togglePicker(cx),
     });
