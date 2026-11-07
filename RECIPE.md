@@ -109,13 +109,20 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   that had it.
 - **Which project.** It follows the focused pane's folder in the active space. The project button or `p`
   opens a dropdown under the button, over the chart, which stays (the search dropdown's frame: as wide as
-  the panel allows up to 440px, at least 260px). Under "Chart a project" (11px medium `t.dim`), rows of two
-  lines (40px, 6px radius, `t.selected` under the cursor), each with a 14px icon and a 13px accent check on
-  the one charted: "Follow the focused space" over the focused folder; then, between thin `t.border`
-  lines, each space's project, its name in 12px `t.foreground` with a badge on the right (a spinner while
-  checking, then "chart", "no chart" or "not reached") over its folder in 11px `t.dim`; and "Choose a
-  folder…" (32px; the system folder picker; the last 8 chosen are kept). `↑↓` moves, `↵` or a click charts
-  the row, `esc` or `p` closes it, and so does a press outside it, which goes no further. A picked
+  the panel allows up to 440px, at least 260px). Its rows are two lines (40px, 6px radius, `t.selected`
+  under the cursor), each with a 14px icon and a 13px accent check on the one charted; the top line is
+  12px `t.foreground`, the one under it 11px `t.dim`.
+  - **Follow the focused space** first, over "Now: <the focused folder's name>".
+  - **The projects** next, between thin `t.border` lines, under the headings "Spaces" (each space's
+    project, in the sidebar's order) and "Folders" (those picked by hand), 11px medium `t.dim`. A project
+    shows its name, a chip with its machine when not this one, and its chart in 11px words on the right:
+    "Checking…", "Charted" (a 6px accent dot), "No chart" or "Not reached" (`t.blocked`, and the second
+    line says why instead of the folder). Past seven, they scroll, with a scrollbar (a virtual list: the
+    wheel scrolls it, not the chart, and `↑↓` keep the keys' row in view).
+  - **Choose a folder…** last (32px; the system folder picker; the last 8 chosen are kept).
+
+  `↑↓` moves, `↵` or a click charts the row, `esc` or `p` closes it, and so does a press outside it,
+  which goes no further. A picked
   project shows a pin and stays picked after a restart. The chart lives in `.chartroom/` of the folder or the
   nearest folder above it, short of home.
 - **No chart yet.** "No chart of <name> yet", a paragraph on what drawing does, a solid **Draw the chart**
@@ -197,7 +204,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `Input`), `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown), `dropdownFrame`
   (the frame both dropdowns share). `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`.
   `drawing.js`: the first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: the
-  picker's rows, badges and dropdown.
+  picker's rows and dropdown, its projects grouped by `pickerItems` (in `model.js`, beside `projectsOf`).
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
   `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
@@ -296,5 +303,5 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   chart** starts an update.
 - `/`, part of a file's name and `↵` show that file picked on its part's level with its lines lit; a route
   such as `GET /ports` finds the file that answers it.
-- The picker lists every space's project with a "chart" or "no chart" badge. Switching between a light and
-  a dark theme recolors everything.
+- The picker lists every space's project under "Spaces", each saying "Charted" or "No chart". Switching
+  between a light and a dark theme recolors everything.
