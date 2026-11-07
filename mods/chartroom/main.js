@@ -12,7 +12,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView, searchView } from "./chart.js";
+import { chartView, detailsView, minimapView, prebuildLines, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
@@ -137,6 +137,8 @@ export default class Chartroom extends View {
     this.hasSize = false;
     // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
     Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
+    // The plain layouts of the levels ELK could not lay out, by level, and the ones being worked out.
+    Object.assign(this, { plain: new Map(), plainLaying: new Set() });
     // Questions: the answers of the project showing (each listed only with the card or level it was
     // asked about), the one an answer was asked for and waits on, the one shown on the chart, and the
     // field to ask in.
@@ -458,6 +460,7 @@ export default class Chartroom extends View {
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
     this.chartVersion += 1;
     this.layouts = new Map();
+    this.plain = new Map();
     this.changed = null;
     this.enter(cx);
     this.checkChanged(cx);
@@ -761,19 +764,46 @@ export default class Chartroom extends View {
     const key = this.levelKey(this.focus, direction);
     const elk = this.layouts.get(key);
     if (!elk && cx) this.lay([{ key, level, direction }], cx);
+    const plain = elk?.error ? this.plainLaid(key, level, width, cx) : null;
     const memo = this.memo;
-    if (memo?.level === level && memo.elk === elk && memo.width === width && memo.zoom === this.zoom) return memo;
+    if (memo?.level === level && memo.elk === elk && memo.plain === plain && memo.width === width && memo.zoom === this.zoom) return memo;
     let laid = null;
     let note = "";
     if (elk && !elk.error) {
       const fit = Math.min(1, Math.max(MIN_FIT, width / elk.width));
       laid = fromElk(level, { ...elk, direction }, { zoom: this.zoom ?? fit, viewWidth: width, insideLabel: level.focus === null ? "Parts" : "Inside" });
     } else if (elk?.error) {
-      laid = layOut(level, width);
+      laid = plain;
       note = `Laid out plainly: ${elk.error}`;
     }
-    this.memo = { chart: this.chart, focus: this.focus, level, elk, width, zoom: this.zoom, laid, note };
+    this.memo = { chart: this.chart, focus: this.focus, level, elk, plain, width, zoom: this.zoom, laid, note };
     return this.memo;
+  }
+
+  // The plain layout of a level ELK could not lay out, worked out in a task after the render that
+  // asks for it, its lines built along with it: on a level of hundreds of cards the two take longer
+  // than Herdr lets a render wait. Null until the first is there; at another width, the last one
+  // until the new one is.
+  plainLaid(key, level, width, cx) {
+    const kept = this.plain.get(key);
+    const asked = `${key}:${width}`;
+    if (kept?.width !== width && cx && !this.plainLaying.has(asked)) {
+      this.plainLaying.add(asked);
+      const version = this.chartVersion;
+      cx.spawn(async (cx) => {
+        await Promise.resolve();
+        try {
+          if (version !== this.chartVersion) return;
+          const laid = layOut(level, width);
+          prebuildLines(laid);
+          this.plain.set(key, { width, laid });
+        } finally {
+          this.plainLaying.delete(asked);
+          cx.notify();
+        }
+      });
+    }
+    return kept?.laid ?? null;
   }
 
   // Left to right where the chart has room for three bands side by side, top to bottom elsewhere.

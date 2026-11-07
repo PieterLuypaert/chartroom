@@ -98,6 +98,9 @@ function geometryOf(laid, lines, zoom) {
   return built.get(laid);
 }
 
+// A layout's lines built ahead of its first render, where the layout was worked out outside one.
+export const prebuildLines = (laid) => geometryOf(laid, laid.lines ?? laid.curves, laid.zoom ?? 1);
+
 // Paths as one layer over the chart, each in its colour (one for all, or one each).
 function painted(paths, colors, id, isHidden) {
   return paths.map((path, index) => window.paint_path(path, Array.isArray(colors) ? colors[index] : colors).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
