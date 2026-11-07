@@ -41,7 +41,9 @@ export const READ_PART = `${FUNCTIONS} f="$1/.chartroom/chart.json"; stamp "$f" 
 
 // A chart too big for FIND_MAP, read a part at a time with `run` (a program and its arguments, to
 // its output): the chart of `stamp`, or null when it was written again while it was read. A chart
-// that big is written in ASCII alone (draw/build.js), so no part ends inside a character.
+// that big is written in ASCII alone (draw/build.js), so no part ends inside a character; one that
+// is not (written before) comes out shorter than its size, and is refused rather than read again
+// and again.
 export async function chartInParts(run, folder, stamp, size) {
   const parts = [];
   for (let skip = 0; skip * MIB < size; skip += PART_MIB) {
@@ -51,7 +53,8 @@ export async function chartInParts(run, folder, stamp, size) {
     parts.push(out.slice(newline + 1));
   }
   const text = parts.join("");
-  return text.length === size ? text : null;
+  if (text.length !== size) throw new Error("the chart is too big to read as it was written: update it, and it is written so it can be");
+  return text;
 }
 
 // sh -c FIND_CHARTS find <folder>...: a line per folder, the folder and a tab, then the folder with

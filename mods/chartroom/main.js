@@ -13,7 +13,7 @@ import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickF
 import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
-import { searchChart, searchIndexInSlices, searchIndexOf } from "./search.js";
+import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
@@ -168,7 +168,7 @@ export default class Chartroom extends View {
     Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelList: cx.focus_handle() });
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
-    Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null, levelAsked: 0 });
+    Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null, indexing: null, levelAsked: 0 });
     this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.foundScroll = VirtualListScrollHandle.new();
     this.projectScroll = VirtualListScrollHandle.new();
@@ -546,9 +546,7 @@ export default class Chartroom extends View {
     this.checkChanged(cx);
     // A card picked when the chart comes (a tab opened on it) is explained too.
     if (this.selected) this.explainSoon(cx);
-    cx.notify();
-    const index = await searchIndexInSlices(chart, pause);
-    if (this.chart === chart) Object.assign(this, { searchIndex: index, indexedChart: chart });
+    this.indexSoon(cx);
   }
 
   // Asks git how far the code moved on since the chart was drawn: the commits past the head each
@@ -1048,9 +1046,9 @@ export default class Chartroom extends View {
   }
 
   // The search in the header, its field taking the keyboard and what it finds over the chart; and the
-  // chart's keys again. The index is made here, once per chart, so a key typed only searches it.
+  // chart's keys again. The index is made once per chart (indexSoon), so a key typed only searches it.
   openSearch(cx) {
-    this.indexNow();
+    this.indexSoon(cx);
     Object.assign(this, { isSearching: true, found: [], foundCursor: 0 });
     this.searchField.set_value("");
     this.searchField.focus();
@@ -1072,17 +1070,27 @@ export default class Chartroom extends View {
 
   // What the field finds on the chart showing.
   searchFor(cx) {
-    if (!this.chart || !this.isSearching) return;
-    this.found = searchChart(this.indexNow(), this.searchField.value());
+    if (!this.chart || !this.isSearching || this.indexedChart !== this.chart) return;
+    this.found = searchChart(this.searchIndex, this.searchField.value());
     this.foundCursor = 0;
     if (this.found.length > 0) this.foundScroll.scroll_to_item(0);
     cx.notify();
   }
 
-  // The search index of the chart showing, made again only when the chart is read again.
-  indexNow() {
-    if (this.indexedChart !== this.chart) Object.assign(this, { searchIndex: searchIndexOf(this.chart), indexedChart: this.chart });
-    return this.searchIndex;
+  // The search index of the chart showing, made in slices in a task, once per chart: on a big chart
+  // it takes longer than a key may wait. A search opened before it is there finds what the field
+  // holds once it is.
+  indexSoon(cx) {
+    const chart = this.chart;
+    if (!chart || this.indexedChart === chart || this.indexing === chart) return;
+    this.indexing = chart;
+    cx.spawn(async (cx) => {
+      const index = await searchIndexInSlices(chart, pauseOn(cx));
+      if (this.indexing === chart) this.indexing = null;
+      if (this.chart !== chart) return;
+      Object.assign(this, { searchIndex: index, indexedChart: chart });
+      this.searchFor(cx);
+    });
   }
 
   // To a card found: the level it sits on, with the card picked, its lines lit and its details

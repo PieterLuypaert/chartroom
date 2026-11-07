@@ -94,6 +94,12 @@ describe("a chart bigger than one exec hands back", () => {
   test("chartInParts gives up on a chart written again while it is read", async () => {
     expect(await chartInParts(runHere, big, "1:1", text.length)).toBeNull();
   });
+
+  test("chartInParts refuses a big chart written before it was written in ASCII, rather than read it again and again", async () => {
+    const old = project("galleon", { ".chartroom/chart.json": `{"name":"Café"}${" ".repeat(INLINE_BYTES)}` });
+    const { stamp, size } = found(old);
+    await expect(chartInParts(runHere, old, stamp, size)).rejects.toThrow("update it");
+  });
 });
 
 describe("FIND_CHARTS", () => {
