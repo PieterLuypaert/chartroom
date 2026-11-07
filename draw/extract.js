@@ -20,7 +20,7 @@ const all = (pattern, text) => [...text.matchAll(pattern)];
 
 export function extract(path, text) {
   const lang = langOf(path);
-  const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp }[lang];
+  const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp, jvm: extractJvm }[lang];
   const found = by ? by(path, text) : { imports: [], defs: [], routes: [], requests: [] };
   return { lang, doc: docOf(text), prefix: "", mounts: [], ...found };
 }
@@ -164,6 +164,29 @@ function extractPhp(_path, text) {
   const prefix = found.find((one) => one.isPrefix)?.p ?? "";
   const routes = found.filter((one) => !one.isPrefix).map((one) => ({ m: one.m, p: `/${[prefix, one.p].join("/").split("/").filter(Boolean).join("/")}`.replace(/\{(\w+)\}/g, ":$1"), line: one.line }));
   return { imports, defs: [...new Set(defs)], routes, requests: [] };
+}
+
+// Java and Kotlin: the package a file declares (`namespace`, as its folder need not match it), its
+// imports, and what it defines at its top level, Kotlin's functions and values included, as it
+// imports those by name too. A static import or a class inside a class names more than a file;
+// the resolver tries the shorter names. Scala and Groovy are left out.
+const ANNOTATIONS = String.raw`(?:@[\w.:]+(?:\([^)\n]*\))?\s+)*`;
+const JAVA_TYPE = new RegExp(String.raw`^${ANNOTATIONS}(?:(?:public|abstract|final|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record|@interface)\s+(\w+)`, "gm");
+const KOTLIN_LEAD = String.raw`^${ANNOTATIONS}(?:(?:public|internal|protected|open|abstract|sealed|data|enum|annotation|inner|value|inline|suspend|operator|infix|tailrec|external|expect|actual|const|lateinit)\s+)*`;
+// Type parameters, one level of them nested (<T : Comparable<T>>), and the receiver of an extension.
+const KOTLIN_TYPE_PARAMS = String.raw`(?:<(?:[^<>]|<[^<>]*>)*>\s*)?`;
+const KOTLIN_TYPE = new RegExp(String.raw`${KOTLIN_LEAD}(?:class|interface|object|fun\s+interface)\s+(\w+)`, "gm");
+const KOTLIN_FUN = new RegExp(String.raw`${KOTLIN_LEAD}fun\s+(?!interface\b)${KOTLIN_TYPE_PARAMS}(?:[^(=\n]*\.)?(\w+)\s*\(`, "gm");
+const KOTLIN_VALUE = new RegExp(String.raw`${KOTLIN_LEAD}(?:val|var)\s+${KOTLIN_TYPE_PARAMS}(?:[^=:\n]*\.)?(\w+)\s*[:=]`, "gm");
+
+function extractJvm(path, text) {
+  if (!/\.(java|kts?)$/.test(path)) return { imports: [], defs: [], routes: [], requests: [] };
+  const namespace = /^[ \t]*package\s+([\w.]+)/m.exec(text)?.[1] ?? "";
+  const imports = all(/^[ \t]*import\s+(?:static\s+)?(\w+(?:\.\w+)*(?:\.\*)?)/gm, text).map((m) => ({ spec: m[1], names: m[1].endsWith(".*") ? [] : [m[1].split(".").pop()] }));
+  const defs = path.endsWith(".java")
+    ? all(JAVA_TYPE, text).map((m) => m[1])
+    : [KOTLIN_TYPE, KOTLIN_FUN, KOTLIN_VALUE].flatMap((pattern) => all(pattern, text)).sort((a, b) => a.index - b.index).map((m) => m[1]);
+  return { imports, defs: [...new Set(defs)], routes: [], requests: [], namespace };
 }
 
 function extractGo(_path, text) {

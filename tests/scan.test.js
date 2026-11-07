@@ -69,6 +69,51 @@ describe("extract", () => {
     expect(found.routes.map((route) => `${route.m} ${route.p}`)).toEqual(["GET /tides/{port}", "POST /ports"]);
   });
 
+  test("reads Java's package, imports and top-level types", () => {
+    const found = extract("billing/src/main/java/com/shop/billing/Invoice.java", [
+      "package com.shop.billing;",
+      "",
+      "import com.stripe.model.Customer;",
+      "import static com.shop.billing.Totals.sum;",
+      "import com.shop.orders.*;",
+      "",
+      "@Entity",
+      "public final class Invoice {",
+      "  public static class Line {}",
+      "}",
+      "record Draft(String id) {}",
+    ].join("\n"));
+    expect(found.lang).toBe("jvm");
+    expect(found.namespace).toBe("com.shop.billing");
+    expect(found.imports).toEqual([{ spec: "com.stripe.model.Customer", names: ["Customer"] }, { spec: "com.shop.billing.Totals.sum", names: ["sum"] }, { spec: "com.shop.orders.*", names: [] }]);
+    expect(found.defs).toEqual(["Invoice", "Draft"]);
+  });
+
+  test("reads Kotlin's top-level classes, objects, functions and values, not its private ones", () => {
+    const found = extract("app/src/main/kotlin/orders/OrderScreen.kt", [
+      "package com.shop.orders",
+      "",
+      "import com.shop.billing.Invoice as Bill",
+      "import kotlinx.coroutines.flow.Flow",
+      "",
+      "@Composable fun OrderScreen(orders: List<Order>) {}",
+      "fun <T : Comparable<T>> List<T>.newestFirst(): List<T> = sortedDescending()",
+      "const val PAGE_SIZE = 20",
+      "data class Order(val id: String)",
+      "object Orders {",
+      "    fun inside() {}",
+      "}",
+      "private fun hidden() {}",
+    ].join("\n"));
+    expect(found.namespace).toBe("com.shop.orders");
+    expect(found.imports).toEqual([{ spec: "com.shop.billing.Invoice", names: ["Invoice"] }, { spec: "kotlinx.coroutines.flow.Flow", names: ["Flow"] }]);
+    expect(found.defs).toEqual(["OrderScreen", "newestFirst", "PAGE_SIZE", "Order", "Orders"]);
+  });
+
+  test("leaves Scala and Groovy unread", () => {
+    expect(extract("src/Main.scala", "package shop\nimport shop.orders._\nclass Main\n").imports).toEqual([]);
+  });
+
   test("reads Python's imports that run over lines, as Black writes them", () => {
     const found = extract("app/main.py", "from app.core.config import (\n    settings,\n    Other as O,  # the other one\n)\nfrom .models import (User,\n Order)\n");
     expect(found.imports).toEqual([{ spec: "app.core.config", names: ["settings", "Other"] }, { spec: ".models", names: ["User", "Order"] }]);
