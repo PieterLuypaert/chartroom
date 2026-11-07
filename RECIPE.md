@@ -163,9 +163,10 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   `watchFolder(<folder>/.chartroom)` reads again on changes to `chart.json`, `progress.json` or `pid`.
   `localStorage`, one per copy, keeps `pinned`, `picked` and `detailsFolded`.
 - Programs: `sh`, `bun`, `git`, `ps`, `kill`, `claude`. The `draw/` pipeline, `bun draw/draw.js <folder>
-  [--update]`: **scan** (no Claude; `git ls-files`, imports resolved for JS/TS, Python, Go and PHP, web
-  requests matched to the endpoints that answer them), **parts** (one `claude -p` with Read, Grep, Glob),
-  **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or `$CHARTROOM_DESCRIBE_MODEL`),
+  [--update]`: **scan** (no Claude; `git ls-files`, imports resolved for JS/TS, Python, Go, PHP, Java and
+  Kotlin, web requests matched to the endpoints that answer them), **parts** (one `claude -p` with Read,
+  Grep, Glob), **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or
+  `$CHARTROOM_DESCRIBE_MODEL`),
   **build**. It writes `.chartroom/{chart,state,progress}.json`, `pid`, `draw.log` and a `.gitignore` of `*`.
   `claude.js` runs `claude -p --output-format json --no-session-persistence --strict-mcp-config
   --setting-sources "" --tools … --json-schema …`. `ask.js <folder> <id> <json>` writes

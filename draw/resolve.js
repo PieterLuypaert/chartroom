@@ -4,6 +4,8 @@
 
 const JS_EXTS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "vue", "svelte", "astro"];
 const NODE_BUILTINS = new Set(["assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dns", "events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks", "process", "querystring", "readline", "stream", "string_decoder", "timers", "tls", "url", "util", "v8", "vm", "worker_threads", "zlib"]);
+// The packages Java, Kotlin and Android come with, which name no outside package.
+const JVM_PLATFORM = new Set(["java", "javax", "kotlin", "jdk", "android"]);
 const PYTHON_STDLIB = new Set(["abc", "argparse", "asyncio", "base64", "collections", "contextlib", "copy", "csv", "dataclasses", "datetime", "decimal", "email", "enum", "functools", "glob", "hashlib", "hmac", "http", "importlib", "inspect", "io", "itertools", "json", "logging", "math", "operator", "os", "pathlib", "pickle", "random", "re", "secrets", "shutil", "signal", "socket", "sqlite3", "string", "subprocess", "sys", "tempfile", "textwrap", "threading", "time", "traceback", "typing", "unittest", "urllib", "uuid", "warnings", "zoneinfo", "__future__"]);
 
 export const dirOf = (path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -32,6 +34,13 @@ export function packageOf(spec, lang) {
   }
   if (lang === "go") return spec.includes(".") ? spec.split("/").slice(0, 3).join("/") : null;
   if (lang === "php") return spec.includes("\\") && !spec.startsWith("App\\") ? spec.split("\\")[0] : null;
+  if (lang === "jvm") {
+    // The package's own parts are those before its first class (dagger.Module is dagger's).
+    const parts = spec.replace(/\.\*$/, "").split(".");
+    const firstClass = parts.findIndex((part) => /^[A-Z]/.test(part));
+    const folders = firstClass > 0 ? parts.slice(0, firstClass) : parts;
+    return JVM_PLATFORM.has(parts[0]) ? null : folders.slice(0, 2).join(".");
+  }
   return null;
 }
 
@@ -41,6 +50,7 @@ export function packageOf(spec, lang) {
 export function resolverFor(files, { aliases = [], goModules = [], psr4 = [] } = {}) {
   const paths = new Set(files.map((file) => file.path));
   const pythonModules = pythonIndex(files);
+  const jvm = jvmIndex(files);
   const goDirs = new Map();
   for (const file of files) {
     if (file.lang !== "go" || file.path.endsWith("_test.go")) continue;
@@ -59,6 +69,7 @@ export function resolverFor(files, { aliases = [], goModules = [], psr4 = [] } =
     if (file.lang === "python") return resolvePython(file, spec, pythonModules, names);
     if (file.lang === "go") return resolveGo(spec, goDirs, around(goModules, file.path)[0]);
     if (file.lang === "php") return resolvePhp(spec, paths, around(psr4, file.path));
+    if (file.lang === "jvm") return resolveJvm(spec, jvm);
     return { files: [], pkg: null };
   };
 }
@@ -155,6 +166,41 @@ function resolvePython(file, spec, modules, names) {
     if (found) return { files: [found], pkg: null };
   }
   return { files: [], pkg: packageOf(spec, "python") };
+}
+
+// Java and Kotlin: every file by the names it can be imported by (its package with its own name, or
+// with a name it defines at its top level), and the files of each package. The first file to claim
+// a name keeps it. `roots` are the first three parts of the project's own packages, so an import of
+// its own code that leads to no file (generated code) names no outside package, while one of the
+// company whose packages the project's sit under (org.springframework.samples) still does.
+function jvmIndex(files) {
+  const names = new Map();
+  const packages = new Map();
+  const roots = new Set();
+  for (const file of files) {
+    if (file.lang !== "jvm" || !file.namespace) continue;
+    const stem = file.path.slice(file.path.lastIndexOf("/") + 1).replace(/\.\w+$/, "");
+    for (const name of [stem, ...file.defs]) if (!names.has(`${file.namespace}.${name}`)) names.set(`${file.namespace}.${name}`, file.path);
+    packages.set(file.namespace, [...(packages.get(file.namespace) ?? []), file.path]);
+    roots.add(file.namespace.split(".").slice(0, 3).join("."));
+  }
+  return { names, packages, roots: [...roots] };
+}
+
+// An import leads to the file that defines its name; a wildcard to every file of its package. A
+// static import or a class inside a class leads to the file of the class it is in: the shorter
+// names tried are those of classes, which start with a capital.
+function resolveJvm(spec, { names, packages, roots }) {
+  const name = spec.replace(/\.\*$/, "");
+  if (name !== spec && packages.has(name)) return { files: packages.get(name), pkg: null };
+  const parts = name.split(".");
+  for (let end = parts.length; end > 1; end -= 1) {
+    if (end < parts.length && !/^[A-Z]/.test(parts[end - 1])) break;
+    const found = names.get(parts.slice(0, end).join("."));
+    if (found) return { files: [found], pkg: null };
+  }
+  const isOwn = roots.some((root) => name === root || name.startsWith(`${root}.`));
+  return { files: [], pkg: isOwn ? null : packageOf(spec, "jvm") };
 }
 
 function resolveGo(spec, goDirs, found) {

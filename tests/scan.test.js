@@ -200,8 +200,33 @@ describe("resolve", () => {
     expect(resolve(files[7], "Stripe\\StripeClient")).toEqual({ files: [], pkg: "Stripe" });
   });
 
+  test("follows Java's and Kotlin's imports through the packages their files declare", () => {
+    const jvm = [
+      { path: "billing/src/main/java/com/shop/billing/Invoice.java", repo: "", lang: "jvm", namespace: "com.shop.billing", defs: ["Invoice"] },
+      { path: "app/src/main/kotlin/orders/OrderScreen.kt", repo: "", lang: "jvm", namespace: "com.shop.orders", defs: ["OrderScreen", "PAGE_SIZE"] },
+      { path: "app/src/main/kotlin/orders/Formats.kt", repo: "", lang: "jvm", namespace: "com.shop.orders", defs: ["formatTotal"] },
+    ];
+    const resolveJvm = resolverFor(jvm);
+    const screen = jvm[1];
+    expect(resolveJvm(screen, "com.shop.billing.Invoice").files).toEqual(["billing/src/main/java/com/shop/billing/Invoice.java"]);
+    expect(resolveJvm(screen, "com.shop.orders.formatTotal").files).toEqual(["app/src/main/kotlin/orders/Formats.kt"]);
+    expect(resolveJvm(screen, "com.shop.billing.Invoice.Line").files).toEqual(["billing/src/main/java/com/shop/billing/Invoice.java"]);
+    expect(resolveJvm(screen, "com.shop.billing.Invoice.create").files).toEqual(["billing/src/main/java/com/shop/billing/Invoice.java"]);
+    expect(resolveJvm(screen, "com.shop.orders.*").files).toEqual(["app/src/main/kotlin/orders/OrderScreen.kt", "app/src/main/kotlin/orders/Formats.kt"]);
+    expect(resolveJvm(screen, "com.stripe.model.Customer")).toEqual({ files: [], pkg: "com.stripe" });
+    expect(resolveJvm(screen, "java.util.List")).toEqual({ files: [], pkg: null });
+  });
+
+  test("takes an import of the project's own code that leads to no file for no outside package", () => {
+    const petclinic = [{ path: "src/owner/OwnerController.java", repo: "", lang: "jvm", namespace: "org.springframework.samples.petclinic.owner", defs: ["OwnerController"] }];
+    const resolveOwn = resolverFor(petclinic);
+    expect(resolveOwn(petclinic[0], "org.springframework.samples.petclinic.R")).toEqual({ files: [], pkg: null });
+    expect(resolveOwn(petclinic[0], "org.springframework.stereotype.Controller")).toEqual({ files: [], pkg: "org.springframework" });
+  });
+
   test("names packages as their registries do", () => {
     expect([packageOf("@sendgrid/mail/lib", "js"), packageOf("stripe", "js"), packageOf("fs", "js"), packageOf("github.com/gin-gonic/gin/render", "go")]).toEqual(["@sendgrid/mail", "stripe", null, "github.com/gin-gonic/gin"]);
+    expect([packageOf("com.stripe.model.Customer", "jvm"), packageOf("dagger.Module", "jvm"), packageOf("kotlinx.coroutines.flow.*", "jvm"), packageOf("kotlin.collections.List", "jvm"), packageOf("android.os.Bundle", "jvm")]).toEqual(["com.stripe", "dagger", "kotlinx.coroutines", null, null]);
   });
 });
 
@@ -249,5 +274,20 @@ describe("connect", () => {
 
   test("links a request to the endpoint under the right mount", () => {
     expect(connected.links.filter((link) => link.k === "http")).toEqual([{ a: "web/client.ts", b: "api/orders.ts", k: "http", w: 1, labels: ["POST /api/orders/:id/refund"] }]);
+  });
+
+  test("links a Java and Kotlin project's files through their imports", () => {
+    const sources = {
+      "app/src/main/kotlin/orders/OrderScreen.kt": "package com.shop.orders\n\nimport com.shop.billing.Invoice\nimport com.shop.orders.data.*\n\n@Composable\nfun OrderScreen() {}\n",
+      "app/src/main/kotlin/orders/data/OrderRepository.kt": "package com.shop.orders.data\n\nclass OrderRepository\n",
+      "billing/src/main/java/com/shop/billing/Invoice.java": "package com.shop.billing;\n\nimport com.stripe.model.Customer;\n\npublic class Invoice {}\n",
+    };
+    const files = Object.entries(sources).map(([path, text]) => ({ path, repo: "", ...extract(path, text) }));
+    const project = connect(files, resolverFor(files));
+    expect(project.links.map((link) => `${link.a} > ${link.b} ${link.labels.join(", ")}`.trim())).toEqual([
+      "app/src/main/kotlin/orders/OrderScreen.kt > billing/src/main/java/com/shop/billing/Invoice.java Invoice",
+      "app/src/main/kotlin/orders/OrderScreen.kt > app/src/main/kotlin/orders/data/OrderRepository.kt",
+    ]);
+    expect(project.files.find((file) => file.path.endsWith("Invoice.java")).packages).toEqual(["com.stripe"]);
   });
 });
