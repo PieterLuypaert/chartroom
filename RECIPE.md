@@ -214,6 +214,9 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
 - Colors come only from `theme()` names, so it follows any theme, light or dark. Accent tints append an
   alpha to `#rrggbb`; an accent that already has an alpha makes those fills solid.
 - `on_size_change` sizes are in app-zoomed units: divide by `settings().zoom`.
+- Herdr runs mods on QuickJS and interrupts a render that takes longer than about 50 ms ("This view could not
+  be re-rendered"). On a 6000-file chart with 26,000 links, a level works out each card once (`levelOf`), the
+  search index is made when the search opens, and a key typed only searches it.
 - `exec` returns at most 8 MiB (`MAX_OUTPUT`): a bigger chart fails with a message saying so. `lay.js` gets
   its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the plain layout. Up to 12 levels one
   click away are laid out ahead, each under 100 KiB. Without `elkjs`, every level gets the plain layout, with
