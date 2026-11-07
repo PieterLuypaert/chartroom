@@ -247,6 +247,11 @@ export function minimapView({ t, map, selected, lighted = new Set(), isDragging,
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
 // what was asked about that card (or level), and at the foot a field to ask the person's own Claude
 // about it.
+// The details' type: text to read at Herdr's own 13px with room between its lines, labels a step
+// under it, and nothing under 11px. Herdr scales a mod's sizes with its zoom, the person's one
+// setting for larger panels.
+const TYPE = { read: 13, readLine: "20px", strong: 13, label: 12, labelLine: "16px", small: 11 };
+
 export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain }) {
   const body = details ? cardDetails(t, details, onPick, onOpen, explain) : levelDetails(t, level, chart);
   return v_flex().size_full().min_h(0)
@@ -257,10 +262,13 @@ export function detailsView({ t, details, level, chart, onPick, onOpen, ask, exp
 
 const stopPress = (_e, cx) => cx.stop_propagation();
 
+// A heading over a list in the panel: what it is and how many.
+const heading = (t, words) => div().px(8).pt(8).pb(2).text_size(TYPE.small).font_medium().text_color(t.muted).child(words);
+
 function answers(t, ask) {
   if (!ask.asks.length) return [];
   return [
-    div().px(8).pt(10).pb(2).text_size(11).font_medium().text_color(t.dim).child(`Asked  ${ask.asks.length}`),
+    heading(t, `Asked  ${ask.asks.length}`).pt(10),
     ...ask.asks.map((one) => answerCard(t, one, ask)),
   ];
 }
@@ -269,29 +277,29 @@ function answers(t, ask) {
 // the cards it is about on the chart, and again puts them out.
 function answerCard(t, one, ask) {
   const isShown = ask.shownId === one.id;
-  const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.muted).child(TextView.markdown(`answer-text-${one.id}`, one.answer || ""))
-    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading the code…")
-      : div().text_size(12).text_color(t.blocked).child(one.status === "stopped" ? "Stopped." : `No answer: ${one.error ?? "for no reason it gave"}`);
+  const body = one.status === "done" ? div().text_size(TYPE.read).line_height(TYPE.readLine).text_color(t.muted).child(TextView.markdown(`answer-text-${one.id}`, one.answer || ""))
+    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(TYPE.label).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading the code…")
+      : div().text_size(TYPE.label).text_color(t.blocked).child(one.status === "stopped" ? "Stopped." : `No answer: ${one.error ?? "for no reason it gave"}`);
   return v_flex().id(`answer-${one.id}`).mx(2).my(3).px(10).py(8).gap(6).rounded(8).border_1().border_color(isShown ? t.accent : t.border).bg(t.background)
     .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.cursor_pointer().hover((s) => s.border_color(t.accent)).on_click((_e, cx) => ask.onShow(one, cx)))
     .child(h_flex().gap(6).items_start()
-      .child(div().flex_1().min_w(0).text_size(12.5).font_medium().text_color(t.foreground).child(one.question))
-      .when(one.status === "asking", (el) => el.child(div().id(`stop-${one.id}`).flex_none().text_size(11).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
+      .child(div().flex_1().min_w(0).text_size(TYPE.strong).font_medium().text_color(t.foreground).child(one.question))
+      .when(one.status === "asking", (el) => el.child(div().id(`stop-${one.id}`).flex_none().text_size(TYPE.small).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
         .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onStop(one, cx)).child("Stop"))))
     .child(body)
-    .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().text_size(10.5).text_color(isShown ? t.accent : t.dim)
+    .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().text_size(TYPE.small).text_color(isShown ? t.accent : t.dim)
       .child(isShown ? `Lit on the chart: ${one.cards.length}` : `${one.cards.length} on the chart: click to light them`)));
 }
 
 // The field at the foot: what it asks about, and Enter or the button to ask.
 function askBar(t, ask) {
-  if (!ask.canAsk) return div().flex_none().px(14).py(8).border_t(1).border_color(t.border).text_size(11.5).text_color(t.dim).child(ask.reason);
+  if (!ask.canAsk) return div().flex_none().px(14).py(8).border_t(1).border_color(t.border).text_size(TYPE.label).text_color(t.dim).child(ask.reason);
   return v_flex().flex_none().px(10).pt(6).pb(10).gap(5).border_t(1).border_color(t.border)
-    .child(div().px(2).text_size(11).text_color(t.dim).truncate().child(`Ask your Claude about ${ask.subject}`))
+    .child(div().px(2).text_size(TYPE.small).text_color(t.dim).truncate().child(`Ask your Claude about ${ask.subject}`))
     .child(h_flex().gap(6)
       .child(div().id("ask-field").flex_1().min_w(0).h(30).px(10).flex().items_center().rounded(8).border_1().border_color(ask.isTyping ? t.accent : t.border)
-        .cursor_text().on_mouse_down("left", stopPress).child(Input.new(ask.field).h_full().text_size(12).text_color(t.foreground)))
-      .child(div().id("ask").flex_none().h(30).px(12).flex().items_center().rounded(8).bg(t.solid).text_color(t.solid_foreground).text_size(12).cursor_pointer()
+        .cursor_text().on_mouse_down("left", stopPress).child(Input.new(ask.field).h_full().text_size(TYPE.read).text_color(t.foreground)))
+      .child(div().id("ask").flex_none().h(30).px(12).flex().items_center().rounded(8).bg(t.solid).text_color(t.solid_foreground).text_size(TYPE.label).cursor_pointer()
         .on_mouse_down("left", stopPress).on_click((_e, cx) => ask.onAsk(cx)).child("Ask")));
 }
 
@@ -304,7 +312,7 @@ function levelDetails(t, level, chart) {
   return [
     head(t, part?.label ?? chart.name, counts),
     text(t, summary || ""),
-    div().px(8).pt(6).text_size(11.5).text_color(t.dim).child("Pick a card to see what it uses and what uses it. Double-click one with › to go inside."),
+    div().px(8).pt(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.dim).child("Pick a card to see what it uses and what uses it. Double-click one with › to go inside."),
   ];
 }
 
@@ -326,43 +334,43 @@ function explained(t, explain) {
   if (!one) return [];
   if (one.status === "none" || one.status === "failed" || one.status === "stopped") {
     return [v_flex().mx(4).mt(6).mb(4).gap(5)
-      .when(one.status !== "none", (el) => el.child(div().px(4).text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`)))
+      .when(one.status !== "none", (el) => el.child(div().px(4).text_size(TYPE.label).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`)))
       .child(h_flex().id("explain").min_h(48).px(10).py(8).gap(10).items_center().rounded(10).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "10"))
         .cursor_pointer().hover((s) => s.bg(thin(t.accent, "22")).border_color(t.accent))
         .on_mouse_down("left", stopPress).on_click((_e, cx) => explain.onExplain(cx))
         .child(div().size(28).flex_none().rounded(7).bg(thin(t.accent, "2e")).flex().items_center().justify_center()
           .child(svg(`${ICONS}/${one.status === "none" ? "search" : "square-pen"}.svg`).size(14).text_color(t.accent)))
         .child(v_flex().flex_1().min_w(0).gap(2)
-          .child(div().text_size(12.5).font_semibold().text_color(t.accent).child(one.status === "none" ? "Explain this" : "Try again"))
-          .child(div().text_size(11).line_height("15px").text_color(t.muted).child("Your Claude reads it: what it does, how it works, what to watch out for")))
-        .child(div().flex_none().px(6).py(1).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(11).font_medium().text_color(t.muted).child("e")))];
+          .child(div().text_size(TYPE.strong).font_semibold().text_color(t.accent).child(one.status === "none" ? "Explain this" : "Try again"))
+          .child(div().text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.muted).child("Your Claude reads it: what it does, how it works, what to watch out for")))
+        .child(div().flex_none().px(6).py(1).rounded(5).border_1().border_color(t.border).bg(t.background).text_size(TYPE.small).font_medium().text_color(t.muted).child("e")))];
   }
-  const body = one.status === "done" ? div().text_size(12).line_height("17px").text_color(t.foreground).child(TextView.markdown(`explained-${one.id ?? one.card}`, one.answer || ""))
-    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(12).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading it…")
-      : div().text_size(11.5).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`);
+  const body = one.status === "done" ? div().text_size(TYPE.read).line_height(TYPE.readLine).text_color(t.foreground).child(TextView.markdown(`explained-${one.id ?? one.card}`, one.answer || ""))
+    : one.status === "asking" ? h_flex().gap(6).items_center().text_size(TYPE.label).text_color(t.dim).child(svg(`${ICONS}/spinner.svg`).size(11).spin(900)).child("Your Claude is reading it…")
+      : div().text_size(TYPE.label).text_color(t.dim).child(`Not explained: ${one.error ?? "it stopped"}`);
   return [v_flex().mx(4).mt(6).mb(4).px(11).py(9).gap(6).rounded(8).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "12"))
     .child(h_flex().gap(6).items_center()
       .child(div().size(6).flex_none().rounded_full().bg(t.accent))
-      .child(div().flex_1().text_size(11).font_medium().text_color(t.accent).child("Explained by your Claude"))
-      .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${one.cards.length} lit on the chart`))))
+      .child(div().flex_1().text_size(TYPE.small).font_medium().text_color(t.accent).child("Explained by your Claude"))
+      .when(one.status === "done" && (one.cards?.length ?? 0) > 0, (el) => el.child(div().flex_none().text_size(TYPE.small).text_color(t.dim).child(`${one.cards.length} lit on the chart`))))
     .child(body)];
 }
 
 // A name and a pill, as the Changes panel heads its list.
 function head(t, title, pill, action = null) {
-  return h_flex().h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center()
+  return h_flex().min_h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center()
     .child(div().min_w(0).truncate().font_semibold().child(title))
-    .when(Boolean(pill), (el) => el.child(div().flex_none().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(pill)))
+    .when(Boolean(pill), (el) => el.child(div().flex_none().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(TYPE.small).text_color(t.muted).child(pill)))
     .child(div().flex_1())
     .when(Boolean(action), (el) => el.child(action));
 }
 
 function text(t, words) {
-  return div().px(8).pb(4).text_size(12).line_height("17px").text_color(t.muted).child(words || "No description yet.");
+  return div().px(8).pb(4).text_size(TYPE.read).line_height(TYPE.readLine).text_color(t.muted).child(words || "No description yet.");
 }
 
 function openButton(t, card, onOpen) {
-  return h_flex().id("details-open").flex_none().h(24).pl(8).pr(4).gap(2).items_center().rounded(6).text_size(12).text_color(t.muted)
+  return h_flex().id("details-open").flex_none().h(24).pl(8).pr(4).gap(2).items_center().rounded(6).text_size(TYPE.label).text_color(t.muted)
     .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().tooltip("Go inside (↵)")
     .on_click((_e, cx) => onOpen(card, cx))
     .child("Inside").child(svg(`${ICONS}/chevron-right.svg`).size(13));
@@ -370,9 +378,9 @@ function openButton(t, card, onOpen) {
 
 function fileFacts(t, card) {
   return [
-    div().px(8).pb(4).text_size(11).text_color(t.dim).truncate().child(`${card.path} · ${plural(card.loc, "line")}`),
-    ...card.routes.map((route) => h_flex().h(24).flex_none().px(8).gap(8).items_center().text_size(12)
-      .child(div().flex_none().px(5).rounded(4).bg(thin(t.accent, "26")).text_size(10.5).font_semibold().text_color(t.accent).child(route.m))
+    div().px(8).pb(4).text_size(TYPE.small).text_color(t.dim).truncate().child(`${card.path} · ${plural(card.loc, "line")}`),
+    ...card.routes.map((route) => h_flex().min_h(24).flex_none().px(8).gap(8).items_center().text_size(TYPE.label)
+      .child(div().flex_none().px(5).rounded(4).bg(thin(t.accent, "26")).text_size(TYPE.small).font_semibold().text_color(t.accent).child(route.m))
       .child(div().flex_none().max_w(180).truncate().text_color(t.foreground).child(route.p))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(route.name ?? ""))),
   ];
@@ -382,12 +390,12 @@ function fileFacts(t, card) {
 function section(t, title, ends, side, onPick) {
   if (!ends.length) return [];
   return [
-    div().px(8).pt(8).pb(2).text_size(11).font_medium().text_color(t.dim).child(`${title}  ${ends.length}`),
-    ...ends.map(({ card, line }) => h_flex().id(`${side}-${card.id}`).h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center().rounded(7)
+    heading(t, `${title}  ${ends.length}`),
+    ...ends.map(({ card, line }) => h_flex().id(`${side}-${card.id}`).min_h(ROW_HEIGHT).flex_none().px(8).gap(8).items_center().rounded(7)
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onPick(card, false, cx))
       .child(svg(iconOf(card)).size(13).flex_none().text_color(t.muted))
       .child(div().flex_none().max_w(170).truncate().child(card.label))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(line.labels.join(" · ") || plural(line.weight, "link")))),
+      .child(div().flex_1().min_w(0).truncate().text_size(TYPE.label).text_color(t.dim).child(line.labels.join(" · ") || plural(line.weight, "link")))),
   ];
 }
 
