@@ -371,3 +371,25 @@ function section(t, title, ends, side, onPick) {
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(line.labels.join(" · ") || plural(line.weight, "link")))),
   ];
 }
+
+// Finding a card, in place of the chart: the field, then what it finds, each with its kind's icon,
+// its name, an endpoint's route, and where it sits. The row under the cursor is lit.
+export function searchView({ t, field, query, found, cursor, onPick }) {
+  const row = (one, index) => h_flex().id(`found-${index}`).h(ROW_HEIGHT + 2).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
+    .when(index === cursor, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
+    .on_mouse_down("left", stopPress)
+    .on_click((_e, cx) => onPick(one, cx))
+    .child(svg(iconOf({ kind: one.kind === "endpoint" ? "file" : one.kind })).size(14).flex_none().text_color(t.muted))
+    .child(div().flex_none().max_w(240).truncate().child(one.label))
+    .when(Boolean(one.route), (el) => el.child(div().flex_none().max_w(200).child(routeChip(t, one.route, 0, 1))))
+    .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(one.where));
+  const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
+  return v_flex().id("search").flex_1().min_h(0).p(8).gap(1)
+    .child(h_flex().id("search-field").flex_none().h(32).mx(2).mb(6).px(10).gap(8).items_center().rounded(8).border_1().border_color(t.accent).cursor_text()
+      .on_mouse_down("left", stopPress)
+      .child(svg(`${ICONS}/search.svg`).size(14).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).h_full().flex().items_center().child(Input.new(field).h_full().text_size(12.5).text_color(t.foreground))))
+    .child(v_flex().id("found").flex_1().min_h(0).overflow_y_scrollbar().gap(1)
+      .when(found.length > 0, (el) => el.children(found.map(row)))
+      .when(found.length === 0, (el) => el.child(div().px(8).py(6).text_size(12).text_color(t.dim).child(words))));
+}

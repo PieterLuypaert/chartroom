@@ -33,7 +33,7 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
   narrower, under the chart (36% of the height, kept between 150px and 300px, top border). Folded, the chart
   gets the whole width.
 - **Status bar, 28px** (11.8px `t.dim`, top border): only the keys that work now, joined by "  ·  ", such
-  as "↑↓ pick · ↵ inside · ⌫ up · −+ zoom · a ask · e explain · d details on · p project · u update".
+  as "↑↓ pick · / search · ↵ inside · ⌫ up · −+ zoom · a ask · e explain · d details on · p project · u update".
 
 **The chart** reads left to right (three bands side by side) when the chart area is at least 860px wide,
 top to bottom when narrower. In a wide view a heading sits over the cards and moves with them: the level's
@@ -118,6 +118,16 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   they arrive; wheel zoom follows at once.
 - **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
   there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
+- **Search.** `/` swaps the chart for a search: a 32px field (8px radius, `t.accent` frame, a search icon,
+  placeholder "Find a part, file or endpoint"), then at most 20 rows (30px, 7px radius, `t.selected` under the
+  cursor): the kind's icon, the name, an endpoint's route chip, and in 11.5px `t.dim` where the card sits
+  ("Server › Orders", or the app's name at the top). Every word typed must be in a card's name, its path or
+  route, or what it does; names that start with the query come first, then names that hold it, then paths and
+  routes, then the rest, parts before files, shorter names first. `↑↓` moves, `↵` or a click goes to the
+  card's level with it picked, its lines lit and its details shown (an endpoint goes to its file), and `esc`
+  goes back. Before typing: "A part's or file's name, a folder or file path, or a route such as GET /orders.";
+  with nothing found: "Nothing on the chart matches." `/` is read by the character typed, so on AZERTY it
+  works with shift. It needs no Claude, so it works on a remote project too.
 - **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the
   cards it names light up. Explanations are kept per card until its code or links change: an update that
@@ -152,8 +162,11 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
-  `Input`). `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the first-drawing
-  card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
+  `Input`), `searchView`. `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the
+  first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
+  `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
+  lowercased words, made once per chart when the search opens) and `searchChart(index, query)` (the best
+  20, kept while looking rather than sorting every match).
 - `find.js`: shell snippets run as `exec("sh", ["-c", SNIPPET, name, ...args], { on })`. `FIND_MAP` (chart,
   progress, log tail, whether a drawing runs), `FIND_CHARTS` (which folders have a chart), `START_DRAW` /
   `STOP_DRAW` (`nohup bun draw.js <folder> [--update]`, and kill), `START_ASK` / `STOP_ASK` / `FIND_ASKS` /
@@ -201,6 +214,9 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
 - Colors come only from `theme()` names, so it follows any theme, light or dark. Accent tints append an
   alpha to `#rrggbb`; an accent that already has an alpha makes those fills solid.
 - `on_size_change` sizes are in app-zoomed units: divide by `settings().zoom`.
+- Herdr runs mods on QuickJS and interrupts a render that takes longer than about 50 ms ("This view could not
+  be re-rendered"). On a 6000-file chart with 26,000 links, a level works out each card once (`levelOf`), the
+  search index is made when the search opens, and a key typed only searches it.
 - `exec` returns at most 8 MiB (`MAX_OUTPUT`): a bigger chart fails with a message saying so. `lay.js` gets
   its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the plain layout. Up to 12 levels one
   click away are laid out ahead, each under 100 KiB. Without `elkjs`, every level gets the plain layout, with
@@ -235,5 +251,7 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   questions show. Clicking an answer lights its cards.
 - After a commit, the "The code moved on since this chart" strip appears within 30s, and **Update the
   chart** starts an update.
+- `/`, part of a file's name and `↵` show that file picked on its part's level with its lines lit; a route
+  such as `GET /ports` finds the file that answers it.
 - The picker lists every space's project with a "chart" or "no chart" badge. Switching between a light and
   a dark theme recolors everything.
