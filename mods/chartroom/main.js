@@ -12,7 +12,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox, searchView } from "./chart.js";
+import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -171,6 +171,8 @@ export default class Chartroom extends View {
     this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
+    // A press on the chart, or anywhere else the keyboard goes, closes the search; its rows keep it.
+    this.searchField.on("blur", (_e, cx) => this.leaveSearch(cx));
     cx.bind_keys(SEARCH_KEYS);
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
@@ -999,8 +1001,8 @@ export default class Chartroom extends View {
     this.selected = cards[next].id;
   }
 
-  // The search in place of the chart, its field taking the keyboard; and the chart again. The index
-  // is made here, once per chart, so a key typed only searches it.
+  // The search in the header, its field taking the keyboard and what it finds over the chart; and the
+  // chart's keys again. The index is made here, once per chart, so a key typed only searches it.
   openSearch(cx) {
     this.indexNow();
     Object.assign(this, { isSearching: true, found: [], foundCursor: 0 });
@@ -1012,6 +1014,13 @@ export default class Chartroom extends View {
   closeSearch(cx) {
     this.isSearching = false;
     this.handle.focus();
+    cx.notify();
+  }
+
+  // The search closed as the keyboard went elsewhere, which keeps it there.
+  leaveSearch(cx) {
+    if (!this.isSearching) return;
+    this.isSearching = false;
     cx.notify();
   }
 
@@ -1255,7 +1264,6 @@ export default class Chartroom extends View {
 
   body(t, view) {
     if (this.isPicking) return this.picker(t);
-    if (view && this.isSearching) return searchView({ t, query: this.searchField.value(), found: this.found, cursor: this.foundCursor, onPick: (one, cx) => this.jumpTo(one, cx) });
     if (view) return this.chartBody(t, view);
     if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
     return this.empty(t);
@@ -1296,8 +1304,7 @@ export default class Chartroom extends View {
     return h_flex().h(42).flex_none().pl(16).pr(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Chartroom"))
       .child(this.projectButton(t))
-      .when(Boolean(view), (el) => el.child(searchBox({ t, field: this.searchField, isOpen: this.isSearching, onOpen: (cx) => this.openSearch(cx),
-        onMove: (by, cx) => this.moveFound(by, cx), onClose: (cx) => this.closeSearch(cx) })))
+      .when(Boolean(view), (el) => el.child(this.search(t)))
       .child(div().flex_1())
       .when(this.isReading && Boolean(this.chart), (el) => el.child(svg(`${ICONS}/spinner.svg`).size(13).flex_none().text_color(t.muted).spin(900)))
       .when(canUpdate, (el) => el.child(this.updateButton(t, isOwn)))
@@ -1314,6 +1321,23 @@ export default class Chartroom extends View {
       .tooltip(isOwn ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)")
       .on_click((_e, cx) => this.draw(cx))
       .child(div().text_size(14).child("↻")).child(isOwn ? "Update" : "Draw");
+  }
+
+  // The header's search box, and while it is open the dropdown of what it finds.
+  search(t) {
+    return searchBox({
+      t,
+      field: this.searchField,
+      isOpen: this.isSearching,
+      query: this.searchField.value(),
+      found: this.found,
+      cursor: this.foundCursor,
+      width: Math.max(220, Math.min(420, this.size.width - 32)),
+      onOpen: (cx) => this.openSearch(cx),
+      onPick: (one, cx) => this.jumpTo(one, cx),
+      onMove: (by, cx) => this.moveFound(by, cx),
+      onClose: (cx) => this.closeSearch(cx),
+    });
   }
 
   // The project charted, with a pin when it was picked rather than followed.
@@ -1486,7 +1510,7 @@ export default class Chartroom extends View {
   // Only the keys that do something here.
   hints(view) {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
-    if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc back";
+    if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc close";
     if (view && this.isModelOpen) return "↑↓ pick  ·  ↵ ask on it  ·  esc back";
     const close = isTab() ? [] : ["esc close"];
     if (this.isDrawing && !view) return [stepWords(this.progress), "s stop", ...close].join("  ·  ");

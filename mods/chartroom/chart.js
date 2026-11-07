@@ -26,6 +26,7 @@ const LINE_WIDTH = 1.2;
 const BUSY_LINES = 18;
 const LIT_LINE_WIDTH = 1.8;
 const ROW_HEIGHT = 28;
+const FOUND_ROW = 40;
 
 const kindOf = (card) => KINDS[card.kind] ?? KINDS.misc;
 const iconOf = (card) => `${ICONS}/${kindOf(card).icon}.svg`;
@@ -445,41 +446,52 @@ export const SEARCH_KEYS = [
 
 // The search in the header, beside the project button: closed, a field-like button that opens it
 // (as `/` does), with a `/` keycap to teach the key; open, the same box holding the field, its keys
-// those of SEARCH_KEYS. It wants 220px and is the first to give way when the header is short, down
-// to its icon.
-export function searchBox({ t, field, isOpen, onOpen, onMove, onClose }) {
-  const box = h_flex().id("search-box").key_context(SEARCH_CONTEXT).w(220).flex_shrink(8).min_w(28).h(24).px(7).gap(6).items_center()
+// those of SEARCH_KEYS, and under it a dropdown over the chart of what it finds. The box wants 220px
+// (320px open) and is the first to give way when the header is short, down to its icon.
+export function searchBox({ t, field, isOpen, query, found, cursor, width, onOpen, onPick, onMove, onClose }) {
+  const box = h_flex().id("search-box").key_context(SEARCH_CONTEXT).size_full().px(7).gap(6).items_center()
     .rounded(6).border_1().overflow_hidden().text_size(11.5)
     .on_mouse_down("left", stopPress)
     .child(svg(`${ICONS}/search.svg`).size(13).flex_none().text_color(t.muted));
-  if (isOpen) {
-    return box.border_color(t.accent).cursor_text()
-      .on_action("chartroom_found_up", (_e, cx) => onMove(-1, cx))
-      .on_action("chartroom_found_down", (_e, cx) => onMove(1, cx))
-      .on_action("chartroom_search_close", (_e, cx) => onClose(cx))
-      .child(div().flex_1().min_w(0).h_full().flex().items_center().child(Input.new(field).h_full().text_size(12).text_color(t.foreground)));
+  const popup = (trigger) => Popup.new("search", trigger).w(isOpen ? 320 : 220).flex_shrink(8).min_w(28).h(24);
+  if (!isOpen) {
+    return popup(box.border_color(t.border).text_color(t.muted).cursor_pointer().role("button")
+      .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Search the chart (/)")
+      .on_click((_e, cx) => onOpen(cx))
+      .child(div().flex_1().min_w(0).truncate().child("Search"))
+      .child(div().flex_none().h(16).px(4).flex().items_center().rounded(4).border_1().border_color(t.border).text_size(10.5).text_color(t.dim).child("/")));
   }
-  return box.border_color(t.border).text_color(t.muted).cursor_pointer().role("button")
-    .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Search the chart (/)")
-    .on_click((_e, cx) => onOpen(cx))
-    .child(div().flex_1().min_w(0).truncate().child("Search"))
-    .child(div().flex_none().h(16).px(4).flex().items_center().rounded(4).border_1().border_color(t.border).text_size(10.5).text_color(t.dim).child("/"));
+  const withField = box.border_color(t.accent).cursor_text().role("combo_box")
+    .on_action("chartroom_found_up", (_e, cx) => onMove(-1, cx))
+    .on_action("chartroom_found_down", (_e, cx) => onMove(1, cx))
+    .on_action("chartroom_search_close", (_e, cx) => onClose(cx))
+    .child(div().flex_1().min_w(0).h_full().flex().items_center().child(Input.new(field).h_full().text_size(12).text_color(t.foreground)));
+  return popup(withField).anchor("top_left").content(foundList({ t, query, found, cursor, width, onPick }));
 }
 
-// Finding a card, in place of the chart, while the header's search box holds the field: what it
-// finds, each with its kind's icon, its name, an endpoint's route, and where it sits. The row under
-// the cursor is lit, and the field's Up and Down move it.
-export function searchView({ t, query, found, cursor, onPick }) {
-  const row = (one, index) => h_flex().id(`found-${index}`).h(ROW_HEIGHT + 2).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer()
-    .when(index === cursor, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
-    .on_mouse_down("left", stopPress)
-    .on_click((_e, cx) => onPick(one, cx))
+// What the search finds, in the dropdown under its box: each card a row of two lines, its kind's
+// icon, its name, an endpoint's route and what it is, then where it sits. The row under the cursor
+// is lit; at most ten show before it scrolls.
+function foundList({ t, query, found, cursor, width, onPick }) {
+  const row = (one, index) => h_flex().id(`found-${index}`).h(FOUND_ROW).flex_none().px(8).gap(10).items_center().rounded(6).cursor_pointer()
+    .role("list_box_option").when(index === cursor, (el) => el.bg(t.selected).aria_active_descendant()).hover((s) => s.bg(t.hover))
+    // On the press, as the dropdown may be gone by the release if the field loses the keyboard.
+    .on_mouse_down("left", (_e, cx) => {
+      cx.stop_propagation();
+      onPick(one, cx);
+    })
     .child(svg(iconOf({ kind: one.kind === "endpoint" ? "file" : one.kind })).size(14).flex_none().text_color(t.muted))
-    .child(div().flex_none().max_w(240).truncate().child(one.label))
-    .when(Boolean(one.route), (el) => el.child(div().flex_none().max_w(200).child(routeChip(t, one.route, 0, 1))))
-    .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(one.where));
+    .child(v_flex().flex_1().min_w(0).gap(2)
+      .child(h_flex().min_w(0).gap(8).items_center()
+        .child(div().flex_shrink_1().min_w(0).truncate().text_size(TYPE.label).text_color(t.foreground).child(one.label))
+        .when(Boolean(one.route), (el) => el.child(div().flex_shrink_1().min_w(0).max_w(200).child(routeChip(t, one.route, 0, 1))))
+        .child(div().flex_1())
+        .child(div().flex_none().text_size(TYPE.small).text_color(t.dim).child(one.kind === "endpoint" ? "endpoint" : kindOf(one).word)))
+      .child(div().min_w(0).truncate().text_size(TYPE.small).text_color(t.dim).child(one.where)));
   const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
-  return v_flex().id("found").flex_1().min_h(0).p(8).gap(1).overflow_y_scrollbar()
+  return v_flex().id("found").role("list_box").w(width).max_h(FOUND_ROW * 10 + 18).mt(4).p(4).gap(1).rounded(8).border_1().border_color(t.border)
+    .bg(t.background).shadow_lg().overflow_y_scrollbar()
+    .on_mouse_down("left", stopPress)
     .when(found.length > 0, (el) => el.children(found.map(row)))
-    .when(found.length === 0, (el) => el.child(div().px(8).py(6).text_size(12).text_color(t.dim).child(words)));
+    .when(found.length === 0, (el) => el.child(div().px(8).py(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.dim).child(words)));
 }
