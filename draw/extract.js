@@ -20,7 +20,7 @@ const all = (pattern, text) => [...text.matchAll(pattern)];
 
 export function extract(path, text) {
   const lang = langOf(path);
-  const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp, jvm: extractJvm }[lang];
+  const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp, jvm: extractJvm, rust: extractRust }[lang];
   const found = by ? by(path, text) : { imports: [], defs: [], routes: [], requests: [] };
   return { lang, doc: docOf(text), prefix: "", mounts: [], ...found };
 }
@@ -30,7 +30,7 @@ function docOf(text) {
   const head = text.replace(/^(#!.*\n|\s*["']use (strict|client|server)["'];?\s*\n|\s*package .*\n)+/, "").trimStart();
   const block = /^\/\*\*?([\s\S]*?)\*\//.exec(head) ?? /^("""|''')([\s\S]*?)\1/.exec(head);
   const lines = block ? block[block.length - 1].split("\n") : head.match(/^((\/\/|#).*\n?)+/)?.[0].split("\n") ?? [];
-  const words = lines.map((line) => line.replace(/^\s*(\/\/+|#+|\*+)\s?/, "").trim()).filter(Boolean).join(" ");
+  const words = lines.map((line) => line.replace(/^\s*(\/\/+!?|#+|\*+)\s?/, "").trim()).filter(Boolean).join(" ");
   return words.slice(0, 240);
 }
 
@@ -187,6 +187,47 @@ function extractJvm(path, text) {
     ? all(JAVA_TYPE, text).map((m) => m[1])
     : [KOTLIN_TYPE, KOTLIN_FUN, KOTLIN_VALUE].flatMap((pattern) => all(pattern, text)).sort((a, b) => a.index - b.index).map((m) => m[1]);
   return { imports, defs: [...new Set(defs)], routes: [], requests: [], namespace };
+}
+
+// Rust: the modules a file declares in other files (`mod orders;`, read as `self::orders`), what it
+// uses, and its public items. Only the lines at the file's top level count: a `use super::*` in an
+// inline `mod tests { }` means the file itself, not the module above it.
+const RUST_LEAD = String.raw`^(?:#\[[^\]\n]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?`;
+const RUST_ITEM = new RegExp(String.raw`^(?:#\[[^\]\n]*\]\s*)*pub(?:\([^)]*\))?\s+(?:(?:async|const|unsafe|extern\s+"[^"]*")\s+)*(?:fn|struct|enum|trait|type|const|static|mod|union)\s+(\w+)`, "gm");
+
+function extractRust(_path, text) {
+  const found = [
+    ...all(new RegExp(String.raw`${RUST_LEAD}mod\s+(\w+)\s*;`, "gm"), text).map((m) => ({ index: m.index, paths: [`self::${m[1]}`] })),
+    ...all(new RegExp(String.raw`${RUST_LEAD}use\s+([^;]+);`, "gm"), text).filter((m) => isUseTree(m[1])).map((m) => ({ index: m.index, paths: usePaths(m[1]) })),
+    ...all(new RegExp(String.raw`${RUST_LEAD}extern\s+crate\s+(\w+)`, "gm"), text).map((m) => ({ index: m.index, paths: [m[1]] })),
+  ].sort((a, b) => a.index - b.index);
+  const imports = found.flatMap((one) => one.paths).map((spec) => ({ spec, names: spec.endsWith("::*") ? [] : [spec.split("::").pop()] }));
+  return { imports, defs: [...new Set(all(RUST_ITEM, text).map((m) => m[1]))], routes: [], requests: [] };
+}
+
+// Whether text after `use` is a use tree, and not a line of prose in a string that starts with it:
+// names, ::, braces, commas and *, with no two words side by side but for `as`.
+const isUseTree = (tree) => /^[\w:{},*\s]+$/.test(tree) && !/\w\s+\w/.test(tree.replace(/\s+as\s+\w+/g, ""));
+
+// A use tree as the paths it names: `a::{b, c::{self, d}} as e` is a::b, a::c and a::c::d.
+function usePaths(tree) {
+  const plain = tree.replace(/\s+as\s+\w+/g, "").replace(/\s+/g, "").replace(/^::/, "");
+  const open = plain.indexOf("{");
+  if (open < 0) return plain ? [plain] : [];
+  const prefix = plain.slice(0, open);
+  const parts = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = start; i < plain.lastIndexOf("}"); i += 1) {
+    if (plain[i] === "{") depth += 1;
+    else if (plain[i] === "}") depth -= 1;
+    else if (plain[i] === "," && depth === 0) {
+      parts.push(plain.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(plain.slice(start, plain.lastIndexOf("}")));
+  return parts.flatMap(usePaths).map((path) => (path === "self" ? prefix.replace(/::$/, "") : `${prefix}${path}`)).filter(Boolean);
 }
 
 function extractGo(_path, text) {

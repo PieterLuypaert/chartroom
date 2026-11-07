@@ -110,6 +110,41 @@ describe("extract", () => {
     expect(found.defs).toEqual(["OrderScreen", "newestFirst", "PAGE_SIZE", "Order", "Orders"]);
   });
 
+  test("reads Rust's modules, uses and public items at the file's top level only", () => {
+    const found = extract("src/orders.rs", [
+      "//! Orders and refunds.",
+      "pub mod refunds;",
+      "#[cfg(test)]",
+      "mod tests;",
+      "use std::io::{self, Write};",
+      "use crate::billing::{invoice::Invoice, self};",
+      "use super::Config as Settings;",
+      "use serde::{",
+      "    Deserialize,",
+      "    Serialize,",
+      "};",
+      "pub extern crate shop_core as core;",
+      "pub struct Order;",
+      "pub(crate) fn place() {}",
+      "fn private_one() {}",
+      "impl Order {",
+      "    pub fn total(&self) {}",
+      "}",
+      "mod inline {",
+      "    use super::*;",
+      "}",
+      'const HELP: &str = "',
+      'use the --refund flag; to undo";',
+    ].join("\n"));
+    expect(found.lang).toBe("rust");
+    expect(found.doc).toBe("Orders and refunds.");
+    expect(found.imports.map((one) => one.spec)).toEqual([
+      "self::refunds", "self::tests", "std::io", "std::io::Write", "crate::billing::invoice::Invoice", "crate::billing", "super::Config", "serde::Deserialize", "serde::Serialize", "shop_core",
+    ]);
+    expect(found.imports[4].names).toEqual(["Invoice"]);
+    expect(found.defs).toEqual(["refunds", "Order", "place"]);
+  });
+
   test("leaves Scala and Groovy unread", () => {
     expect(extract("src/Main.scala", "package shop\nimport shop.orders._\nclass Main\n").imports).toEqual([]);
   });
