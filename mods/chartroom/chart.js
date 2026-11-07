@@ -59,21 +59,23 @@ export function chartView({ t, laid, selected, hovered, lighted = new Set(), isI
   const touches = (line, id) => Boolean(id) && (line.from === id || line.to === id);
   const isLighted = (line) => lighted.has(line.from) && lighted.has(line.to);
   const lit = lines.filter((line) => touches(line, selected) || isLighted(line));
-  const hot = lines.filter((line) => !lit.includes(line) && touches(line, hovered));
-  const quiet = lines.filter((line) => !lit.includes(line) && !touches(line, hovered));
+  const isLit = new Set(lit);
+  const hot = lines.filter((line) => !isLit.has(line) && touches(line, hovered));
   const zoom = laid.zoom ?? 1;
   const isElk = Boolean(laid.lines);
   const isFocused = Boolean(selected || hovered || lighted.size);
+  const all = geometryOf(laid, lines, zoom);
   const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id), isInstant }, box.id === selected, onPick, onHover, zoom, laid.direction);
+  const litKey = `${selected}-${lighted.size}`;
   return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
     .opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
       ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y + 9 * zoom).w(band.w).h(1).bg(t.border)),
-      ...strokes(quiet, thin(t.dim, quietAlpha(lines.length > BUSY_LINES, isFocused)), LINE_WIDTH, "lines", isMoving),
-      ...strokes(hot, thin(t.accent, "90"), LINE_WIDTH, `hot-${hovered}`, false),
-      ...strokes(lit, t.accent, LIT_LINE_WIDTH, `lit-${selected}-${lighted.size}`, isLitEntering),
+      ...painted(all.strokes, thin(t.dim, quietAlpha(lines.length > BUSY_LINES, isFocused)), "lines", isMoving),
+      ...painted(strokePaths(hot, LINE_WIDTH), thin(t.accent, "90"), `hot-${hovered}`, false),
+      ...painted(strokePaths(lit, LIT_LINE_WIDTH), t.accent, `lit-${litKey}`, isLitEntering),
       ...laid.cards.map(card),
-      ...(isElk ? [...ports(t, [...quiet, ...hot], t.dim, zoom, "ports", isMoving), ...ports(t, lit, t.accent, zoom, `lit-ports-${selected}-${lighted.size}`, isLitEntering)] : []),
+      ...(isElk ? [...painted(all.rings, [t.chrome, t.dim], "ports", isMoving), ...painted(ringPaths(lit, zoom), [t.chrome, t.accent], `lit-ports-${litKey}`, isLitEntering)] : []),
       ...(laid.bands ?? []).map((band) => div().absolute().left(band.x).top(band.y).px(6 * zoom).bg(t.chrome).rounded(4)
         .text_size(11 * zoom).font_medium().text_color(t.dim).child(`${band.label}  ${band.count}`)),
     ]);
@@ -87,8 +89,26 @@ const FADE = { duration: 180, easing: "ease-out" };
 const GLIDE = { duration: 220, easing: "ease-out" };
 const RADIUS = 9;
 
-// Lines as one layer: right-angled routes with their corners rounded, or curves with arrowheads.
-function strokes(lines, color, width, id, isHidden) {
+// Every line of a layout and the ring at each of its ends, built once for that layout and kept:
+// building them is most of what a busy level takes to draw, and a hover or a pick only draws the
+// few lines it lights over them. A path is fixed geometry; its colour is given when it is painted.
+const built = new WeakMap();
+function geometryOf(laid, lines, zoom) {
+  if (!built.has(laid)) built.set(laid, { strokes: strokePaths(lines, LINE_WIDTH), rings: laid.lines ? ringPaths(lines, zoom) : [] });
+  return built.get(laid);
+}
+
+// A layout's lines built ahead of its first render, where the layout was worked out outside one.
+export const prebuildLines = (laid) => geometryOf(laid, laid.lines ?? laid.curves, laid.zoom ?? 1);
+
+// Paths as one layer over the chart, each in its colour (one for all, or one each).
+function painted(paths, colors, id, isHidden) {
+  return paths.map((path, index) => window.paint_path(path, Array.isArray(colors) ? colors[index] : colors).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
+    .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
+}
+
+// Lines as paths: right-angled routes with their corners rounded, or curves with arrowheads.
+function strokePaths(lines, width) {
   if (!lines.length) return [];
   let stroke = PathBuilder.stroke(width);
   let heads = PathBuilder.fill();
@@ -101,9 +121,7 @@ function strokes(lines, color, width, id, isHidden) {
       hasHeads = true;
     }
   }
-  const paths = hasHeads ? [stroke.build(), heads.build()] : [stroke.build()];
-  return paths.map((path, index) => window.paint_path(path, color).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
-    .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
+  return hasHeads ? [stroke.build(), heads.build()] : [stroke.build()];
 }
 
 // A route through its corners, each corner a short curve instead of a sharp turn.
@@ -123,21 +141,22 @@ function rounded(builder, points) {
   return path.line_to(last[0], last[1]);
 }
 
-// A small ring where each line meets a card, on the panel's ground.
-function ports(t, lines, color, zoom, id, isHidden) {
+// A small ring where each line meets a card, as two paths: its ground, painted in the panel's
+// colour, and its edge. Each ring is a circle of two half arcs, which builds in a quarter of the
+// time a twelve-sided polygon took.
+function ringPaths(lines, zoom) {
   if (!lines.length) return [];
   const r = Math.max(2.4, 3.2 * zoom);
-  const ring = ([x, y]) => Array.from({ length: 12 }, (_, i) => [x + r * Math.cos((i * Math.PI) / 6), y + r * Math.sin((i * Math.PI) / 6)]);
+  const circle = (builder, x, y) => builder.move_to(x + r, y).arc_to(r, r, 0, false, true, x - r, y).arc_to(r, r, 0, false, true, x + r, y).close();
   let ground = PathBuilder.fill();
   let edge = PathBuilder.stroke(1.2);
   for (const line of lines) {
-    for (const point of [line.points[0], line.points.at(-1)]) {
-      ground = ground.add_polygon(ring(point), true);
-      edge = edge.add_polygon(ring(point), true);
+    for (const [x, y] of [line.points[0], line.points.at(-1)]) {
+      ground = circle(ground, x, y);
+      edge = circle(edge, x, y);
     }
   }
-  return [[ground.build(), t.chrome], [edge.build(), color]].map(([path, paint], index) => window.paint_path(path, paint).id(`${id}-${index}`).absolute().top(0).left(0).size_full()
-    .opacity(isHidden ? 0 : 1).transition("opacity", FADE));
+  return [ground.build(), edge.build()];
 }
 
 // What a card does, in two lines at most, broken between words to fit its width.

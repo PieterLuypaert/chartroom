@@ -24,10 +24,11 @@ export function layOut(level, width) {
   ].filter((group) => group.length);
   const placed = new Map();
   const cards = [];
+  const neighbours = neighboursOf(level.lines);
   let y = SIZES.pad;
   groups.forEach((group, index) => {
     if (index > 0) y += SIZES.layerGap - SIZES.gap;
-    const ordered = byNeighbours(group, level.lines, placed);
+    const ordered = byNeighbours(group, neighbours, placed);
     for (let start = 0; start < ordered.length; start += columns) {
       const row = ordered.slice(start, start + columns);
       let x = (width - (row.length * cardWidth + (row.length - 1) * SIZES.gap)) / 2;
@@ -71,46 +72,62 @@ function layersOf(cards, lines) {
 // The cards in an order where as little as possible, by the links' weight, points backwards (Eades,
 // Lin and Smyth's greedy order): cards that use nothing left go last, cards nothing left uses go
 // first, and otherwise the card that uses the most more than it is used goes next. In a loop, the
-// lighter way round is the one that gives way.
+// lighter way round is the one that gives way. What each card still uses and is used by among the
+// cards left is kept up to date as cards are taken, not added up again each round: a level of
+// hundreds of cards otherwise takes longer than Herdr lets a view wait.
 function forwardOrder(ids, outs, ins) {
   const left = new Set(ids);
-  const weighOf = (ends) => ends.reduce((sum, end) => (left.has(end.id) ? sum + end.weight : sum), 0);
+  const total = (ends) => ends.reduce((sum, end) => sum + end.weight, 0);
+  const uses = new Map(ids.map((id) => [id, total(outs.get(id))]));
+  const usedBy = new Map(ids.map((id) => [id, total(ins.get(id))]));
+  const take = (id) => {
+    left.delete(id);
+    for (const end of outs.get(id)) if (left.has(end.id)) usedBy.set(end.id, usedBy.get(end.id) - end.weight);
+    for (const end of ins.get(id)) if (left.has(end.id)) uses.set(end.id, uses.get(end.id) - end.weight);
+  };
   const head = [];
+  // The cards that go last, the one taken last first: taken in turn, each goes before the ones taken before it.
   const tail = [];
   while (left.size) {
     let isMoved = true;
     while (isMoved) {
       isMoved = false;
       for (const id of [...left]) {
-        if (weighOf(outs.get(id)) === 0) {
-          tail.unshift(id);
-          left.delete(id);
-          isMoved = true;
-        } else if (weighOf(ins.get(id)) === 0) {
-          head.push(id);
-          left.delete(id);
-          isMoved = true;
-        }
+        if (uses.get(id) === 0) tail.push(id);
+        else if (usedBy.get(id) === 0) head.push(id);
+        else continue;
+        take(id);
+        isMoved = true;
       }
     }
     if (!left.size) break;
-    const score = (id) => weighOf(outs.get(id)) - weighOf(ins.get(id));
+    const score = (id) => uses.get(id) - usedBy.get(id);
     const next = [...left].reduce((best, id) => (score(id) > score(best) ? id : best));
     head.push(next);
-    left.delete(next);
+    take(next);
   }
-  return [...head, ...tail];
+  return [...head, ...tail.reverse()];
+}
+
+// Each card's neighbours: the cards its lines lead to or come from, in the order of the lines.
+function neighboursOf(lines) {
+  const neighbours = new Map();
+  const add = (id, other) => {
+    if (!neighbours.has(id)) neighbours.set(id, []);
+    neighbours.get(id).push(other);
+  };
+  for (const line of lines) {
+    add(line.from, line.to);
+    add(line.to, line.from);
+  }
+  return neighbours;
 }
 
 // The group with the cards linked to ones already placed moved under the middle of those, each
 // among the places such cards hold; the rest stay where they were.
-function byNeighbours(group, lines, placed) {
+function byNeighbours(group, neighbours, placed) {
   const centreOf = (card) => {
-    const xs = lines
-      .flatMap((line) => (line.from === card.id ? [line.to] : line.to === card.id ? [line.from] : []))
-      .map((id) => placed.get(id))
-      .filter(Boolean)
-      .map(centreX);
+    const xs = (neighbours.get(card.id) ?? []).map((id) => placed.get(id)).filter(Boolean).map(centreX);
     return xs.length ? xs.reduce((sum, x) => sum + x, 0) / xs.length : null;
   };
   const keyed = group.map((card, index) => ({ card, index, at: centreOf(card) }));

@@ -216,7 +216,10 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
 - `on_size_change` sizes are in app-zoomed units: divide by `settings().zoom`.
 - Herdr runs mods on QuickJS and interrupts a render that takes longer than about 50 ms ("This view could not
   be re-rendered"). On a 6000-file chart with 26,000 links, a level works out each card once (`levelOf`), the
-  search index is made when the search opens, and a key typed only searches it.
+  search index is made when the search opens, and a key typed only searches it. The lines' paths and their
+  rings (circles of two arcs) are built once per layout and kept, so a hover or a pick only adds the lines it
+  lights. The plain layout, for a level ELK cannot take, is worked out in a task with its lines, as ELK's is,
+  never in a render: a level of 800 cards and 2400 lines takes about 25 ms to lay out and 15 ms to build.
 - `exec` returns at most 8 MiB (`MAX_OUTPUT`): a bigger chart fails with a message saying so. `lay.js` gets
   its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the plain layout. Up to 12 levels one
   click away are laid out ahead, each under 100 KiB. Without `elkjs`, every level gets the plain layout, with
