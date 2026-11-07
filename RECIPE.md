@@ -222,8 +222,10 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   never in a render: a level of 800 cards and 2400 lines takes about 25 ms to lay out and 15 ms to build.
 - `exec` returns at most 8 MiB (`MAX_OUTPUT`): a bigger chart fails with a message saying so. `lay.js` gets
   its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the plain layout. Up to 12 levels one
-  click away are laid out ahead, each under 100 KiB. Without `elkjs`, every level gets the plain layout, with
-  a note saying why.
+  click away are laid out ahead, each under 100 KiB: worked out one per turn of the timer (each takes up to
+  30 ms on a big chart), then laid out by ELK together; a later run, another chart or another level shown
+  stops it. `levelOf` keeps each level per chart, so going to one laid out ahead does not work it out again.
+  Without `elkjs`, every level gets the plain layout, with a note saying why.
 - Polls: the chart is read again every 15s (`READ_MS`) while remote, chartless, drawing or failed; the
   changed check every 30s; answers and explanations every 1.5s while they run. Limits: 6000 files of at most
   400 KiB in a scan; a 15-minute timeout and one retry per Claude call; answers: `ask.js` keeps

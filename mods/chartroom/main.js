@@ -135,8 +135,9 @@ export default class Chartroom extends View {
     this.views = new Map();
     this.size = { width: 460, height: 600 };
     this.hasSize = false;
-    // ELK's layouts by level, those asked for and not back yet, and which chart they are of.
-    Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null });
+    // ELK's layouts by level, those asked for and not back yet, which chart they are of, and the
+    // latest run laying levels out ahead.
+    Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null, aheadCount: 0 });
     // The plain layouts of the levels ELK could not lay out, by level, and the ones being worked out.
     Object.assign(this, { plain: new Map(), plainLaying: new Set() });
     // Questions: the answers of the project showing (each listed only with the card or level it was
@@ -760,7 +761,7 @@ export default class Chartroom extends View {
   view(cx) {
     const direction = this.direction();
     const width = this.chartWidth();
-    const level = this.memo?.chart === this.chart && this.memo.focus === this.focus ? this.memo.level : levelOf(this.chart, this.focus);
+    const level = levelOf(this.chart, this.focus);
     const key = this.levelKey(this.focus, direction);
     const elk = this.layouts.get(key);
     if (!elk && cx) this.lay([{ key, level, direction }], cx);
@@ -844,15 +845,28 @@ export default class Chartroom extends View {
   }
 
   // The levels one click away (the parts on this level, and the level above), laid out ahead so
-  // going there shows them at once.
+  // going there shows them at once. One level is worked out per turn of the timer: on a big chart
+  // each takes up to 30 ms, and all of them in one go held the panel up for over 100 ms. Then ELK
+  // lays them out together. A later run, another chart, or another level shown stops this one.
   layAhead(cx) {
     const level = this.memo?.level;
     if (!level) return;
     const direction = this.direction();
     const parts = [...level.inside, ...level.outside].filter((card) => card.isOpenable).map((card) => card.part);
     if (level.focus !== null) parts.push(this.chart.nodes.get(level.focus)?.parent ?? null);
-    const levels = [...new Set(parts)].slice(0, MAX_AHEAD).map((part) => ({ key: this.levelKey(part, direction), level: levelOf(this.chart, part), direction }));
-    this.lay(levels.filter((one) => JSON.stringify(elkLevel(one.key, one.level, direction)).length < MAX_LAY_ARG / 4), cx);
+    const queue = [...new Set(parts)].slice(0, MAX_AHEAD);
+    const run = ++this.aheadCount;
+    const chart = this.chart;
+    const wanted = [];
+    const next = (cx) => {
+      if (run !== this.aheadCount || chart !== this.chart || level.focus !== this.focus) return;
+      if (!queue.length) return this.lay(wanted, cx);
+      const part = queue.shift();
+      const one = { key: this.levelKey(part, direction), level: levelOf(chart, part), direction };
+      if (JSON.stringify(elkLevel(one.key, one.level, direction)).length < MAX_LAY_ARG / 4) wanted.push(one);
+      cx.timer.after(0, next);
+    };
+    cx.timer.after(0, next);
   }
 
   isWide() {
