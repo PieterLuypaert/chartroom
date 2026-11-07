@@ -6,18 +6,18 @@ An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
-![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and your Claude's explanation of it beside the chart](preview.png)
+![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and your Claude's explanation of it beside the chart](docs/chart-whole-app.png)
 
 Go inside a part to see its files:
 
-![Inside Chart drawing: the file File descriptions picked with its lines lit, and your Claude's explanation of it beside the chart](docs/inside-a-part.png)
+![Inside Chart drawing: the file File descriptions picked with its lines lit, and your Claude's explanation of it beside the chart](docs/chart-inside-a-part.png)
 
 ## Features
 
 - **Explore**: each level in three bands (what uses a part, what is inside it, what it uses). Double-click a card to go inside, scroll to zoom, drag or use the minimap to move.
 - **Find**: press `/` and type a part's or file's name, a path or a route such as `GET /orders`, and go straight to its card.
 - **Explain and ask**: have Claude explain any card, or ask it about a card or level and see the cards in its answer lit on the chart.
-- **Stay current**: when the code moves on, an update re-describes only the files that changed.
+- **Stay current**: an update re-describes only the files that changed, and keeps the explanations of the rest.
 - **Fits in**: follows the focused space or any project you pick, in your Herdr theme's colors.
 
 ## Install
