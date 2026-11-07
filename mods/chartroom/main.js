@@ -72,7 +72,8 @@ const DRAG_STEP = 4;
 const KEEP_IN_VIEW = 120;
 // The wheel at rest this long ends a zoom with it; until then the cards follow it without gliding.
 const WHEEL_REST_MS = 160;
-// The heading's height over a wide view's chart, near enough to bound how far it is dragged.
+// The heading's height over a wide view's chart at 100%, near enough to bound how far it is dragged
+// until its real height is known.
 const HEADING_HEIGHT = 130;
 // A chart view lower than this is a laptop's: the heading is kept small.
 const LOW_VIEW = 700;
@@ -580,7 +581,7 @@ export default class Chartroom extends View {
     const laid = this.memo?.laid;
     const view = this.visible();
     const width = Math.max(laid?.width ?? 0, KEEP_IN_VIEW);
-    const height = Math.max((laid?.height ?? 0) + (this.isWide() ? HEADING_HEIGHT : 0), KEEP_IN_VIEW);
+    const height = Math.max((laid?.height ?? 0) + (this.isWide() ? this.headingNow() : 0), KEEP_IN_VIEW);
     const between = (value, low, high) => Math.min(high, Math.max(low, value));
     this.pan = { x: between(x, KEEP_IN_VIEW - view.width, width - KEEP_IN_VIEW), y: between(y, KEEP_IN_VIEW - view.height, height - KEEP_IN_VIEW) };
   }
@@ -618,7 +619,7 @@ export default class Chartroom extends View {
   minimap(view) {
     const visible = this.visible();
     if (!view?.laid?.lines || !hasRoomFor(visible)) return null;
-    const top = this.isWide() ? this.headingHeight ?? HEADING_HEIGHT : 0;
+    const top = this.isWide() ? this.headingNow() : 0;
     return minimapOf(view.laid.cards, { view: visible, pan: this.pan, top });
   }
 
@@ -663,6 +664,11 @@ export default class Chartroom extends View {
 
   zoomNow() {
     return this.memo?.laid?.zoom ?? 1;
+  }
+
+  // The heading's height as last measured, or until it is, near enough at the chart's zoom.
+  headingNow() {
+    return this.headingHeight ?? HEADING_HEIGHT * this.zoomNow();
   }
 
   // A card under the pointer lights its lines.
