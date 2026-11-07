@@ -2,15 +2,21 @@
 // query matches, best first, each with the level it sits on. Plain functions over the chart
 // (model.js), so bun tests them without the app. The index is made once per chart: a search runs
 // on every key typed, and a 6000-file chart must stay quick to search.
-import { trailOf } from "./model.js";
+import { inSlices, sliceClock, straight, trailOf } from "./model.js";
 
 const MAX_FOUND = 20;
 const baseName = (path) => path.slice(path.lastIndexOf("/") + 1);
 
 // Every card to find: what it is (`ref`, `kind`, `label`), the level it sits on (`focus`) and
 // where that is in words (`where`), an endpoint's method and path (`route`), and the words it is
-// found by, lowercased once: its name, its path or route, and what it does.
-export function searchIndexOf(chart) {
+// found by, lowercased once: its name, its path or route, and what it does. In slices, for the
+// panel to make it ahead of the first key typed, as on a big chart it takes longer than Herdr lets
+// a key wait.
+export const searchIndexOf = (chart) => straight(indexSteps(chart));
+export const searchIndexInSlices = (chart, pause) => inSlices(indexSteps(chart), pause);
+
+function* indexSteps(chart) {
+  const clock = sliceClock();
   const placeOf = placesOf(chart);
   const entry = ({ path = "", about = "", ...card }) => ({ ...card, name: card.label.toLowerCase(), path: path.toLowerCase(), about: about.toLowerCase() });
   const index = [];
@@ -21,6 +27,10 @@ export function searchIndexOf(chart) {
   }
   for (const file of chart.files.values()) {
     index.push(entry({ ref: `f:${file.p}`, kind: "file", label: file.name || baseName(file.p), focus: file.n, where: placeOf(file.n), path: file.p, about: file.d ?? "" }));
+    if (clock.isDue()) {
+      yield;
+      clock.restart();
+    }
   }
   for (const route of chart.routes) {
     const file = chart.files.get(route.f);
