@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { CARD_SIZES, columnsFor, elkLevel, fromElk, layOut, SIZES } from "../mods/chartroom/layout.js";
+import { CARD_SIZES, columnsFor, elkLevel, fromElk, headingType, layOut, SIZES } from "../mods/chartroom/layout.js";
 import { levelOf, readChart } from "../mods/chartroom/model.js";
 
 const chart = readChart(readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8"));
@@ -164,5 +164,20 @@ describe("fromElk", () => {
     const asked = elkLevel("k", level, "DOWN");
     expect(asked.cards.find((card) => card.id === "n:db")).toEqual({ id: "n:db", band: 2, ...CARD_SIZES.DOWN.outside });
     expect(asked.lines.length).toBe(level.lines.length);
+  });
+});
+
+describe("headingType", () => {
+  test("gives the heading's sizes at 100%: a 13px line, a 24px name, and what it does at 13px on 20px lines", () => {
+    expect(headingType(1)).toEqual({ width: 760, padX: 20, padTop: 18, padBottom: 4, gap: 4, kind: 13, name: 24, summary: 13, summaryLine: 20, summaryMax: null });
+  });
+
+  test("grows with the zoom as the cards do, the name no larger than 32px", () => {
+    expect(headingType(1.49)).toMatchObject({ width: 1132.4, padX: 29.8, kind: 19.4, name: 32, summary: 19.4, summaryLine: 29.8 });
+    expect(headingType(0.75)).toMatchObject({ kind: 9.8, name: 18, summary: 9.8, summaryLine: 15 });
+  });
+
+  test("is smaller on a low screen, what it does kept to two lines", () => {
+    expect(headingType(1, true)).toMatchObject({ padTop: 12, gap: 2, name: 19, summary: 12, summaryLine: 17, summaryMax: 34 });
   });
 });

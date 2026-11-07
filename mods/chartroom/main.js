@@ -11,7 +11,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
-import { elkLevel, fromElk, layOut } from "./layout.js";
+import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, searchView } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -1360,13 +1360,16 @@ export default class Chartroom extends View {
     const part = level.focus === null ? null : this.chart.nodes.get(level.focus);
     const cards = level.inside.length + level.outside.length;
     const kind = part ? `${part.kind === "external" ? "outside service" : part.kind ?? "part"} · ${cards} cards` : `the whole app · ${cards} cards`;
-    // On a low screen (a laptop's), smaller, and what it does in two lines at most.
+    // On a low screen (a laptop's), smaller, and what it does in two lines at most. At the chart's
+    // zoom, as the cards it sits over, and as wide as they may be.
     const isLow = (this.viewSize?.height ?? this.size.height) < LOW_VIEW;
-    return v_flex().id("heading").on_size_change((size, cx) => this.headingSized(size, cx)).w(Math.min(760, this.chartWidth() - 56)).px(20).pt(isLow ? 12 : 18).pb(4).gap(isLow ? 2 : 4)
-      .child(div().text_size(12).text_color(t.dim).child(kind))
-      .child(div().text_size(isLow ? 19 : 24).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
-      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(isLow ? 12 : 13).line_height(isLow ? "17px" : "19px").text_color(t.muted)
-        .when(isLow, (text) => text.max_h(34).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
+    const sizes = headingType(this.zoomNow(), isLow);
+    const room = Math.max(this.chartWidth(), this.memo?.laid?.width ?? 0) - 56;
+    return v_flex().id("heading").on_size_change((size, cx) => this.headingSized(size, cx)).w(Math.min(sizes.width, room)).px(sizes.padX).pt(sizes.padTop).pb(sizes.padBottom).gap(sizes.gap)
+      .child(div().text_size(sizes.kind).text_color(t.muted).child(kind))
+      .child(div().text_size(sizes.name).font_semibold().text_color(t.foreground).child(part?.label ?? this.chart.name))
+      .when(Boolean(part?.summary ?? this.chart.summary), (el) => el.child(div().text_size(sizes.summary).line_height(`${sizes.summaryLine}px`).text_color(t.muted)
+        .when(sizes.summaryMax !== null, (text) => text.max_h(sizes.summaryMax).overflow_hidden()).child(part?.summary ?? this.chart.summary)));
   }
 
   // The wheel or two fingers zoom around the pointer, as a map does; dragging moves the chart. With

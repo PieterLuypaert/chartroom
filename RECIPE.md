@@ -36,9 +36,10 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
   as "↑↓ pick · / search · ↵ inside · ⌫ up · −+ zoom · a ask · e explain · d details on · p project · u update".
 
 **The chart** reads left to right (three bands side by side) when the chart area is at least 860px wide,
-top to bottom when narrower. In a wide view a heading sits over the cards and moves with them: the level's
-kind and card count in 12px `t.dim` ("the whole app · 7 cards", "service · 12 cards"), the name in 24px
-semibold, the summary in 13px `t.muted` (under 700px tall: 19px name, 12px summary cut at two lines). Each
+top to bottom when narrower. In a wide view a heading sits over the cards and moves and zooms with them
+(`headingType`, every size times the zoom): at 100%, the level's kind and card count in 13px `t.muted` ("the
+whole app · 7 cards", "service · 12 cards"), the name in 24px semibold, never over 32px, and the summary in
+13px `t.muted` on 20px lines (under 700px tall: 19px name, 12px summary on 17px lines, cut at two). Each
 band has a label pill in 11px medium `t.dim` on `t.chrome` ("Used by  2", "Parts  6" at the top or
 "Inside  6" below it, "Uses  3") over a 1px `t.border` rule.
 
