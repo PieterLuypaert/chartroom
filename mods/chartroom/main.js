@@ -10,7 +10,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, levelOf, projectsOf, readChart } from "./model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView } from "./chart.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
@@ -381,14 +381,14 @@ export default class Chartroom extends View {
   explain(card, count, cx, isAsked) {
     const folder = this.folder;
     const key = explainKey(card);
-    const stamp = this.chart?.meta?.generatedAt ?? null;
+    const chart = this.chart;
     const again = (cx) => cx.timer.after(ASK_POLL_MS, (cx) => count === this.explainCount && this.explain(card, count, cx, false));
     cx.spawn(async (cx) => {
       try {
         const found = await exec("sh", ["-c", FIND_EXPLAIN, "explain", folder, key]);
         if (count !== this.explainCount) return;
         const record = asksFrom(found.stdout)[0] ?? null;
-        const isKept = record?.card === card && (record.status === "asking" || (record.status === "done" && record.chart === stamp));
+        const isKept = record?.card === card && (record.status === "asking" || (record.status === "done" && isExplanationCurrent(chart, record)));
         if (isKept || (!record && this.explaining?.key === key)) {
           this.explanation = record ?? { card, status: "asking" };
           if (this.explanation.status === "asking") again(cx);

@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asksFor, asksFrom, CHANGED, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_MAP, mapFrom, START_ASK, START_DRAW } from "../mods/chartroom/find.js";
-import { cardIdOn, levelOf, readChart } from "../mods/chartroom/model.js";
+import { cardIdOn, isExplanationCurrent, levelOf, readChart } from "../mods/chartroom/model.js";
 import { elkLevel, fromElk } from "../mods/chartroom/layout.js";
 import { minimapOf } from "../mods/chartroom/minimap.js";
 
@@ -115,15 +115,18 @@ describe("a project drawn, explored, asked about and updated", () => {
     }
   }, 30000);
 
-  test("Explain this: keeps the card's explanation with the chart it was made for", async () => {
-    const key = explainKey("n:web");
-    expect(sh(START_ASK, project, script("ask.js"), key, JSON.stringify({ explain: true, card: "n:web", focus: null })).code).toBe(0);
-    const record = await until(() => asksFrom(sh(FIND_EXPLAIN, project, key).stdout)[0], (found) => found?.status === "done");
-    expect(record).toMatchObject({ card: "n:web", chart: raw.meta.generatedAt });
-    expect(record.answer.length).toBeGreaterThan(0);
+  const explained = {};
+  test("Explain this: keeps the card's explanation with what the card was drawn from", async () => {
+    for (const card of ["n:web", "n:api"]) {
+      const key = explainKey(card);
+      expect(sh(START_ASK, project, script("ask.js"), key, JSON.stringify({ explain: true, card, focus: null })).code).toBe(0);
+      explained[card] = await until(() => asksFrom(sh(FIND_EXPLAIN, project, key).stdout)[0], (found) => found?.status === "done");
+      expect(explained[card]).toMatchObject({ card, chart: raw.meta.generatedAt, rev: raw.nodes.find((node) => `n:${node.id}` === card).rev });
+      expect(explained[card].answer.length).toBeGreaterThan(0);
+    }
   }, 30000);
 
-  test("Update: notices a commit, describes only the file that changed, and is current again", async () => {
+  test("Update: notices a commit, describes only the file that changed, keeps the explanations it did not touch, and is current again", async () => {
     const changed = () => sh(CHANGED, project, join(project, ".chartroom", "chart.json"), ...raw.meta.repos.flatMap((repo) => [repo.path ?? "", repo.head])).stdout.trim();
     expect(changed()).toBe("0 0");
     write("api/src/tides.ts", "/** The tides of one port, high and low. */\nexport function tides(port: string) { return [port]; }\n");
@@ -137,6 +140,8 @@ describe("a project drawn, explored, asked about and updated", () => {
     expect(found.progress).toMatchObject({ step: "done", isUpdate: true });
     expect(asked()).toEqual(["describe api/src/tides.ts"]);
     raw = JSON.parse(found.text);
+    expect(isExplanationCurrent(readChart(found.text), explained["n:web"])).toBe(true);
+    expect(isExplanationCurrent(readChart(found.text), explained["n:api"])).toBe(false);
     expect(changed()).toBe("0 0");
     expect(existsSync(join(project, ".chartroom", "pid"))).toBe(false);
   }, 30000);

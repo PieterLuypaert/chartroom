@@ -181,3 +181,20 @@ export function cardIdOn(chart, focus, ref) {
   const at = focus !== null && chart.nodes.has(focus) ? focus : null;
   return cardsOn(chart, at)(ref)?.id ?? null;
 }
+
+// The fingerprint of what a part's or file's explanation is written from (draw/build.js), or null
+// for a card the chart does not have, or a chart drawn before cards had one.
+export function revOf(chart, ref) {
+  if (typeof ref !== "string") return null;
+  const card = ref.startsWith("n:") ? chart.nodes.get(ref.slice(2)) : ref.startsWith("f:") ? chart.files.get(ref.slice(2)) : null;
+  return card?.rev ?? null;
+}
+
+// Whether a kept explanation still holds on this chart: while its card's code and links are as they
+// were (the same rev). One written before cards had a rev, or on a chart without them, holds only
+// on the chart it was written for.
+export function isExplanationCurrent(chart, record) {
+  const rev = revOf(chart, record.card);
+  if (rev && record.rev) return record.rev === rev;
+  return record.chart === (chart.meta?.generatedAt ?? null);
+}

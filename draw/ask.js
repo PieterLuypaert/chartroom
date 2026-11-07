@@ -9,7 +9,7 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { askClaude, stopAll } from "./claude.js";
-import { detailsOf, levelOf, readChart } from "../mods/chartroom/model.js";
+import { detailsOf, levelOf, readChart, revOf } from "../mods/chartroom/model.js";
 import { explainKey } from "../mods/chartroom/find.js";
 
 const ASK_TOOLS = ["Read", "Grep", "Glob"];
@@ -128,7 +128,7 @@ async function main() {
   try {
     const chart = await chartIn(folder);
     const answer = await askClaude({ cwd: folder, prompt: askPrompt(chart, { question, card, focus }), schema: ASK_SCHEMA, tools: ASK_TOOLS, model: explain ? EXPLAIN_MODEL : null });
-    await writeWhole(path, { ...record, status: "done", chart: chart.meta.generatedAt ?? null, ...checkAnswer(chart, answer), endedAt: new Date().toISOString() });
+    await writeWhole(path, { ...record, status: "done", chart: chart.meta.generatedAt ?? null, rev: revOf(chart, card), ...checkAnswer(chart, answer), endedAt: new Date().toISOString() });
   } catch (error) {
     console.error(error);
     await writeWhole(path, { ...record, status: "failed", error: error.message, endedAt: new Date().toISOString() });
