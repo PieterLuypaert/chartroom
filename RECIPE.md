@@ -6,9 +6,9 @@ uses what. Claude explains any card and answers questions about a card or a leve
 names. It only reads the code, on the person's own Claude subscription. A **Chartroom** button in the tab bar
 opens it.
 
-![Chartroom: the whole app, a part picked with its lines lit and its details beside the chart](preview.png)
+![Chartroom: the whole app, a part picked with its lines lit and its explanation beside the chart](preview.png)
 
-![Chartroom: inside a part, a file picked with its lines lit to the parts it uses](docs/inside-a-part.png)
+![Chartroom: inside a part, a file picked with its lines lit and its explanation beside the chart](docs/inside-a-part.png)
 
 ## What you see
 
