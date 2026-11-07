@@ -6,11 +6,11 @@ An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
-![Portly's chart in the Chartroom: the whole app, the part How the list looks picked with its lines lit, and its details beside the chart](preview.png)
+![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and your Claude's explanation of it beside the chart](preview.png)
 
 Go inside a part to see its files:
 
-![Inside Portly's Commands and launcher: the file Typed commands picked, its lines lit to the six parts it uses](docs/inside-a-part.png)
+![Inside Chart drawing: the file File descriptions picked with its lines lit, and your Claude's explanation of it beside the chart](docs/inside-a-part.png)
 
 ## Features
 
