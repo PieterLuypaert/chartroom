@@ -8,9 +8,9 @@
 // through the command chartroom.full), and from that tab goes back; with props {tab: true, project,
 // focus, selected} it is that tab. The panel beside the terminals stays a key away (⌥⇧⌘F).
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, VirtualListScrollHandle } from "gpui-base";
+import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart } from "./model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, pickerItems, projectsOf, readChart } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexOf } from "./search.js";
@@ -170,6 +170,7 @@ export default class Chartroom extends View {
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
     this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.foundScroll = VirtualListScrollHandle.new();
+    this.projectScroll = VirtualListScrollHandle.new();
     this.searchField.on("change", (_e, cx) => this.searchFor(cx));
     this.searchField.on("submit", (_e, cx) => this.jumpTo(this.found[this.foundCursor], cx));
     // A press on the chart, or anywhere else the keyboard goes, closes the search; its rows keep it.
@@ -310,6 +311,7 @@ export default class Chartroom extends View {
     this.question?.release();
     this.searchField?.release();
     this.foundScroll?.release();
+    this.projectScroll?.release();
     this.modelList?.release();
   }
 
@@ -1058,7 +1060,7 @@ export default class Chartroom extends View {
     return projectsOf(spaces(), this.picked);
   }
 
-  // The list of projects in place of the chart, or the chart again.
+  // The list of projects under the project button, opened or closed.
   togglePicker(cx) {
     this.isPicking = !this.isPicking;
     this.isSearching = false;
@@ -1066,9 +1068,16 @@ export default class Chartroom extends View {
       const rows = pickerRows(this.projects());
       const current = rows.findIndex((row) => (row.kind === "follow" ? !this.pinned : row.kind === "project" && row.project.folder === this.pinned?.folder && row.project.on === (this.pinned.on ?? null)));
       this.cursor = Math.max(0, current);
+      this.showPicked();
       this.checkCharts(cx);
     }
     cx.notify();
+  }
+
+  // Keeps the keys' row in view when it is a project, which scroll; the other rows always show.
+  showPicked() {
+    const item = pickerItems(this.projects()).findIndex((one) => one.row === this.cursor);
+    if (item >= 0) this.projectScroll.scroll_to_item(item);
   }
 
   // Asks each machine which of its projects have a chart, all of a machine's projects at once.
@@ -1195,8 +1204,10 @@ export default class Chartroom extends View {
 
   pickerKey(k, cx) {
     const rows = pickerRows(this.projects());
-    if (k === "down" || k === "up") this.cursor = Math.min(rows.length - 1, Math.max(0, this.cursor + (k === "down" ? 1 : -1)));
-    else if (k === "enter" && rows[this.cursor]) this.onRow(rows[this.cursor], cx);
+    if (k === "down" || k === "up") {
+      this.cursor = Math.min(rows.length - 1, Math.max(0, this.cursor + (k === "down" ? 1 : -1)));
+      this.showPicked();
+    } else if (k === "enter" && rows[this.cursor]) this.onRow(rows[this.cursor], cx);
     else if (k === "escape" || k === "p") this.togglePicker(cx);
     else return false;
     return true;
@@ -1248,9 +1259,9 @@ export default class Chartroom extends View {
     if (props()?.button) return this.button(t);
     this.watchShown(cx);
     if (isOpen() && JSON.stringify(this.where()) !== this.context) this.refresh(cx);
-    const view = this.chart && !this.isPicking ? this.view(cx) : null;
+    const view = this.chart ? this.view(cx) : null;
     const failed = this.progress?.step === "failed" && !this.isDrawing && this.chart ? endedWords(this.progress, this.log) : "";
-    const error = this.isPicking ? "" : this.error || failed;
+    const error = this.error || failed;
     return v_flex().id("chartroom").track_focus(this.handle).size_full().min_h(0).bg(t.chrome).text_size(13).text_color(t.foreground)
       .on_size_change((size, cx) => this.resized(size, cx))
       .on_key_down((e, cx) => this.onKey(e, cx))
@@ -1267,7 +1278,6 @@ export default class Chartroom extends View {
   }
 
   body(t, view) {
-    if (this.isPicking) return this.picker(t);
     if (view) return this.chartBody(t, view);
     if (this.isDrawing) return firstDrawing({ t, name: baseName(this.folder ?? this.place.cwd), progress: this.progress, onStop: (cx) => this.stop(cx) });
     return this.empty(t);
@@ -1303,7 +1313,7 @@ export default class Chartroom extends View {
   // As the Changes panel's header, in line with the tab bar: its name, the project it charts (a
   // button to pick another), the search while a chart shows, and its buttons.
   header(t, view) {
-    const canUpdate = Boolean(this.chart) && !this.isDrawing && !this.isPicking && !this.place?.on;
+    const canUpdate = Boolean(this.chart) && !this.isDrawing && !this.place?.on;
     const isOwn = this.kind === "chartroom";
     return h_flex().h(42).flex_none().pl(16).pr(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Chartroom"))
@@ -1345,29 +1355,35 @@ export default class Chartroom extends View {
     });
   }
 
-  // The project charted, with a pin when it was picked rather than followed.
+  // The project charted, with a pin when it was picked rather than followed, and under it, while
+  // picking, the dropdown of projects.
   projectButton(t) {
     const label = this.chart?.name ?? (this.place?.cwd ? baseName(this.place.cwd) : "No project");
     const tip = this.pinned ? `Charting ${this.pinned.folder}: pick another (p)` : "Charting the focused space's project: pick another (p)";
-    return h_flex().id("project").flex_shrink_1().min_w(0).max_w(220).h(24).px(6).gap(4).items_center().rounded(6).border_1()
+    const button = h_flex().id("project").min_w(0).max_w(220).h(24).px(6).gap(4).items_center().rounded(6).border_1()
       .border_color(this.isPicking ? t.accent : t.border).text_size(11.5).text_color(this.isPicking ? t.foreground : t.muted).cursor_pointer()
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
       .on_click((_e, cx) => this.togglePicker(cx))
       .when(Boolean(this.pinned), (el) => el.child(svg(`${ICONS}/pin.svg`).size(11).flex_none()))
       .child(div().min_w(0).truncate().child(label))
       .child(svg(`${ICONS}/chevron-down.svg`).size(11).flex_none());
+    return Popup.new("project-list", button).flex_shrink_1().min_w(0).max_w(220).anchor("top_left").when(this.isPicking, (el) => el.content(this.picker(t)));
   }
 
   picker(t) {
+    const followed = location().cwd;
     return projectList({
       t,
-      rows: pickerRows(this.projects()),
+      projects: this.projects(),
       cursor: this.cursor,
       charted: this.charted,
       pinned: this.pinned,
-      focusedFolder: location().cwd,
+      focused: followed ? baseName(followed) : null,
       home: home(),
+      width: Math.max(260, Math.min(440, this.size.width - 32)),
+      scroll: this.projectScroll,
       onRow: (row, cx) => this.onRow(row, cx),
+      onClose: (cx) => this.isPicking && this.togglePicker(cx),
     });
   }
 
@@ -1467,8 +1483,9 @@ export default class Chartroom extends View {
   // The wheel or two fingers zoom around the pointer, as a map does; dragging moves the chart. With
   // shift or ⌘ held they move it instead.
   wheel(e, cx) {
-    // While the search is open, the wheel is its dropdown's: the chart under it neither zooms nor pans.
-    if (!this.memo?.laid || this.isSearching) return;
+    // While the search or the project list is open, the wheel is its dropdown's: the chart under it
+    // neither zooms nor pans.
+    if (!this.memo?.laid || this.isSearching || this.isPicking) return;
     const m = e.modifiers ?? {};
     const dx = e.delta?.x ?? 0;
     const dy = e.delta?.y ?? 0;
@@ -1515,7 +1532,7 @@ export default class Chartroom extends View {
 
   // Only the keys that do something here.
   hints(view) {
-    if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc back";
+    if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc close";
     if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc close";
     if (view && this.isModelOpen) return "↑↓ pick  ·  ↵ ask on it  ·  esc back";
     const close = isTab() ? [] : ["esc close"];

@@ -57,6 +57,21 @@ export function projectsOf(spaceList, pickedFolders) {
   return out;
 }
 
+// The project picker's scrolling list, in the order it shows them: "Spaces" over the spaces'
+// projects, then "Folders" over the folders picked by hand, each project with its row among the
+// picker's rows (row 0 follows the focus) so the keys and the list agree.
+export function pickerItems(projects) {
+  const items = [];
+  let heading = null;
+  projects.forEach((project, index) => {
+    const label = project.space === null ? "Folders" : "Spaces";
+    if (label !== heading) items.push({ kind: "heading", label });
+    heading = label;
+    items.push({ kind: "project", project, row: index + 1 });
+  });
+  return items;
+}
+
 // A part and the parts it sits in, innermost first.
 function lineage(chart, id) {
   const out = [];

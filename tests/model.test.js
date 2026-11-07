@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, pickerItems, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -144,6 +144,28 @@ describe("projectsOf", () => {
     const projects = projectsOf(spaces, ["/code/harbour", "/code/tide-tables"]);
     expect(projects.map((one) => one.folder)).toEqual(["/code/tide-tables", "/code/tide-tables", "/code/harbour"]);
     expect(projects.at(-1)).toEqual({ label: "harbour", folder: "/code/harbour", on: null, space: null, key: ":/code/harbour" });
+  });
+});
+
+describe("pickerItems", () => {
+  const spaces = [
+    { id: "s1", name: "tide-tables", folder: "/code/tide-tables", machine: null },
+    { id: "s3", name: "tide-tables", folder: "/code/tide-tables", machine: "vps" },
+  ];
+  const shape = (items) => items.map((one) => (one.kind === "heading" ? `# ${one.label}` : `${one.project.label} @${one.row}`));
+
+  test("puts the spaces' projects under Spaces and the folders picked by hand under Folders", () => {
+    const items = pickerItems(projectsOf(spaces, ["/code/harbour"]));
+    expect(shape(items)).toEqual(["# Spaces", "tide-tables @1", "tide-tables @2", "# Folders", "harbour @3"]);
+  });
+
+  test("numbers each project by its row in the picker, after the row that follows the focus", () => {
+    expect(pickerItems(projectsOf(spaces, [])).filter((one) => one.kind === "project").map((one) => one.row)).toEqual([1, 2]);
+  });
+
+  test("shows only the headings that have projects under them", () => {
+    expect(shape(pickerItems(projectsOf([], ["/code/harbour"])))).toEqual(["# Folders", "harbour @1"]);
+    expect(pickerItems([])).toEqual([]);
   });
 });
 

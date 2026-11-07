@@ -476,9 +476,7 @@ export function searchBox({ t, field, isOpen, query, found, cursor, width, scrol
 // row in view (`scroll`, a VirtualListScrollHandle main.js moves). A row picks on its click, which
 // a virtual list reports for the list by the row's key.
 function foundList({ t, query, found, cursor, width, scroll, onPick }) {
-  const frame = v_flex().id("found").role("list_box").w(width).mt(4).p(4).rounded(8).border_1().border_color(t.border)
-    .bg(t.background).shadow_lg()
-    .on_mouse_down("left", stopPress);
+  const frame = dropdownFrame(t, "found", width);
   if (found.length === 0) {
     const words = query.trim() ? "Nothing on the chart matches." : "A part's or file's name, a folder or file path, or a route such as GET /orders.";
     return frame.child(div().px(8).py(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.dim).child(words));
@@ -501,4 +499,12 @@ function foundList({ t, query, found, cursor, width, scroll, onPick }) {
   return frame.child(v_flex().relative().h(Math.min(found.length, FOUND_SHOWN) * FOUND_ROW)
     .child(rows)
     .child(Scrollbar.vertical("found-rows").absolute().inset_0()));
+}
+
+// The frame of a dropdown over the chart, the search's and the project picker's: 4px under what
+// opens it, `width` wide, its lists scrolling inside it. A press inside goes no further.
+export function dropdownFrame(t, id, width) {
+  return v_flex().id(id).role("list_box").w(width).mt(4).p(4).rounded(8).border_1().border_color(t.border)
+    .bg(t.background).shadow_lg()
+    .on_mouse_down("left", stopPress);
 }
