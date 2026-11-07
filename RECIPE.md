@@ -118,9 +118,10 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   they arrive; wheel zoom follows at once.
 - **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
   there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
-- **Explain.** Picking a card shows its kept explanation at once if the chart has not changed since, else
+- **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the
-  cards it names light up. Explanations are kept per card until the chart changes.
+  cards it names light up. Explanations are kept per card until its code or links change: an update that
+  leaves a card alone leaves its explanation.
 - **Ask.** `a` focuses the field, `↵` or **Ask** sends, `esc` leaves the field. Answers are listed per card
   (a picked card lists only the questions about it, from any level) and per level (with nothing picked,
   only that level's own). Clicking a finished answer lights the cards it names; again turns them off.
@@ -171,7 +172,7 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
   `claude.js` runs `claude -p --output-format json --no-session-persistence --strict-mcp-config
   --setting-sources "" --tools … --json-schema …`. `ask.js <folder> <id> <json>` writes
   `.chartroom/asks/<id>.json` (or `explains/<hash>.json` for an explanation, model `sonnet`), status asking
-  then done, failed or stopped, with `answer` and up to 8 `cards`. `lay.js '<levels json>'` runs ELK
+  then done, failed or stopped, with `answer`, up to 8 `cards` and the card's `rev`. `lay.js '<levels json>'` runs ELK
   (layered, partitioned by band, orthogonal edges, fixed-side ports) and prints `{layouts}`.
 - `keys.json`: `"global": { "cmd-alt-f": "chartroom.full", "cmd-alt-shift-f": "layout.toggle:chartroom" }`.
 - `install.sh [layout]` needs `jq`, `bun` and `herdr-app`. It symlinks `~/.config/herdr-app/mods/chartroom`
@@ -229,7 +230,7 @@ frame while typing; placeholder "What does it do? What breaks if it goes?") and 
 - The wheel zooms around the pointer and the % label follows; `0` fits. The minimap sits in the bottom-left
   corner, and dragging its frame moves the view without a jump.
 - `e` on a card shows "Explained by your Claude", then the text. Picking another card and coming back shows
-  it again without asking.
+  it again without asking, and so does an update that changed a file in another part.
 - A question asked with a card picked is listed only on that card; with nothing picked, only that level's
   questions show. Clicking an answer lights its cards.
 - After a commit, the "The code moved on since this chart" strip appears within 30s, and **Update the

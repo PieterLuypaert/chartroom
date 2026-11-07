@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { cardIdOn, detailsOf, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -155,5 +155,32 @@ describe("cardIdOn", () => {
 
   test("is nothing for the part the level shows", () => {
     expect(cardIdOn(chart, "api", "n:api")).toBeNull();
+  });
+});
+
+describe("isExplanationCurrent", () => {
+  const drawnAt = (generatedAt, revs) => readChart(JSON.stringify({
+    schema: "chartroom/chart@1",
+    meta: { generatedAt },
+    nodes: [{ id: "api", parent: null, label: "Server", rev: revs.api }],
+    files: [{ p: "api/index.ts", n: "api", name: "Start", rev: revs.file }],
+    links: [],
+  }));
+  const updated = drawnAt("2026-11-08", { api: "a2", file: "f1" });
+
+  test("keeps an explanation while its card's rev is the same, after an update too", () => {
+    expect(isExplanationCurrent(updated, { card: "f:api/index.ts", rev: "f1", chart: "2026-11-07" })).toBe(true);
+    expect(isExplanationCurrent(updated, { card: "n:api", rev: "a1", chart: "2026-11-07" })).toBe(false);
+  });
+
+  test("keeps one written before cards had a rev only on the chart it was written for", () => {
+    expect(isExplanationCurrent(updated, { card: "n:api", chart: "2026-11-08" })).toBe(true);
+    expect(isExplanationCurrent(updated, { card: "n:api", chart: "2026-11-07" })).toBe(false);
+  });
+
+  test("keeps one on a chart drawn before cards had a rev only on the chart it was written for", () => {
+    const older = drawnAt("2026-11-07", {});
+    expect(isExplanationCurrent(older, { card: "n:api", rev: "a1", chart: "2026-11-07" })).toBe(true);
+    expect(isExplanationCurrent(older, { card: "n:api", rev: "a1", chart: "2026-11-06" })).toBe(false);
   });
 });
