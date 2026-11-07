@@ -16,7 +16,7 @@ import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, search
 import { searchChart, searchIndexOf } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
-import { asksFor, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
@@ -29,7 +29,6 @@ const ICONS = "mods/workspace-chrome";
 // how often the project is looked in again while it has no chart or is being drawn.
 const READ_MS = 15000;
 // exec hands back at most 8 MiB, so a bigger chart arrives cut short.
-const MAX_OUTPUT = 8 * 1024 * 1024;
 // Kept in localStorage: the project picked (null: follow the focused space), and the folders
 // chosen by hand, the latest first.
 const PINNED = "pinned";
@@ -182,7 +181,7 @@ export default class Chartroom extends View {
     Object.assign(this, { minimapDrag: null, isOnMinimap: false, headingHeight: null });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
-    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, stamp: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
     this.moveTo(JSON.stringify(this.where()), this.where());
     if (asked.tab) Object.assign(this, { focus: asked.focus ?? null, selected: asked.selected ?? null });
     this.wasShown = isOpen();
@@ -261,7 +260,7 @@ export default class Chartroom extends View {
 
   remember() {
     this.views.delete(this.context);
-    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, stamp: this.stamp, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
     while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value);
   }
 
@@ -299,10 +298,11 @@ export default class Chartroom extends View {
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
     // Another project than the one showing: its own level and card, not the last one's.
-    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
+    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, stamp: null, focus: null, selected: null });
     Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
-    if (found.kind === "none") Object.assign(this, { chart: null, text: null });
-    else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length, cx);
+    if (found.kind === "none") Object.assign(this, { chart: null, text: null, stamp: null });
+    else if (found.text === null) await this.readInParts(context, place, found, cx);
+    else if (found.text !== this.text) this.show(found.text, found.stamp, cx);
     this.watch(place, cx);
     if (this.folder !== this.asksFolder) this.loadAsks(cx);
   }
@@ -506,14 +506,26 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  show(folder, text, length, cx) {
-    try {
-      this.chart = readChart(text);
-    } catch (error) {
-      if (length >= MAX_OUTPUT * 0.9) throw new Error(`the chart in ${folder} is bigger than the 8 MiB the Chartroom reads`);
-      throw error;
-    }
+  // A chart too big for one exec, read in parts, and only when it was written again since the last
+  // read: on a big project every read moves tens of megabytes. One written again while it is read is
+  // read once more after.
+  async readInParts(context, place, found, cx) {
+    if (found.stamp === this.stamp) return;
+    const run = async ([command, ...args]) => {
+      const result = await exec(command, args, { on: place.on });
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `reading the chart ended with ${result.code}`);
+      return result.stdout;
+    };
+    const text = await chartInParts(run, found.folder, found.stamp, found.size);
+    if (context !== this.context) return;
+    if (text === null) this.isStale = true;
+    else this.show(text, found.stamp, cx);
+  }
+
+  show(text, stamp, cx) {
+    this.chart = readChart(text);
     this.text = text;
+    this.stamp = stamp;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
     this.chartVersion += 1;
     this.layouts = new Map();
@@ -736,7 +748,7 @@ export default class Chartroom extends View {
   }
 
   forget() {
-    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, stamp: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
   }
 
   // Reads again when the chart or the drawing's progress changes: in .chartroom while the panel's

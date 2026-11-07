@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { buildChart } from "../draw/build.js";
+import { readFileSync } from "node:fs";
+import { levelOf, readChart } from "../mods/chartroom/model.js";
+import { buildChart, chartText } from "../draw/build.js";
 
 // A shop: a website, a server with an orders part inside it, and a mail service. The website's
 // page asks the orders part for its list.
@@ -46,5 +48,29 @@ describe("buildChart's rev", () => {
   test("changes for both ends of a new link, and the parts it crosses into and out of", () => {
     const mailToServer = { a: "mail/send.ts", b: "api/index.ts", k: "import", w: 1, labels: ["config"] };
     expect(changed(drawn(), drawn({ links: [PAGE_TO_LIST, mailToServer] }))).toEqual(["f:api/index.ts", "f:mail/send.ts", "n:api", "n:mail"]);
+  });
+});
+
+describe("chartText", () => {
+  test("writes the chart in ASCII alone, so a part read on its own never ends inside a character", () => {
+    const chart = { schema: "chartroom/chart@1", project: { name: "Café ☕", summary: "Orders › Pay — 🧾 receipts" }, nodes: [{ id: "pay", label: "Pay ☕" }] };
+    const text = chartText(chart);
+    expect(/^[\x00-\x7f]*$/.test(text)).toBe(true);
+    expect(JSON.parse(text)).toEqual(chart);
+  });
+
+  test("writes a line per part, file, endpoint and link, which the panel reads as it reads the chart in one piece", () => {
+    const tides = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
+    const graph = JSON.parse(tides);
+    const text = chartText(graph);
+    expect(text.split("\n")).toHaveLength(1 + 4 * 2 + graph.nodes.length + graph.files.length + graph.routes.length + graph.links.length);
+    expect(JSON.parse(text)).toEqual(graph);
+    const [lines, whole] = [readChart(text), readChart(JSON.stringify(graph))];
+    expect([...lines.files.values()]).toEqual([...whole.files.values()]);
+    expect(levelOf(lines, "api")).toEqual(levelOf(whole, "api"));
+  });
+
+  test("keeps a chart with no lists on one line", () => {
+    expect(chartText({ schema: "chartroom/chart@1" })).toBe('{"schema":"chartroom/chart@1"}');
   });
 });
