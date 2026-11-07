@@ -83,7 +83,7 @@ frame while typing; placeholder "What does it do? What breaks if it goes?"), the
 **Ask** button. The model button is 30px high with an 8px radius and a 1px `t.border` frame (`t.accent`
 while open): the model chosen in 12px `t.muted` and a 12px chevron-down. Open, a list hangs over it from its
 right edge, 170px wide on `t.background` with a `t.border` frame and an 8px radius: "Ask on" in 11px medium
-`t.muted`, then a 28px row per model (Default, Fable, Opus, Sonnet, Haiku), `t.selected` under the keys and a
+`t.muted`, then a 28px row per model (Default, Opus, Sonnet), `t.selected` under the keys and a
 `t.accent` check on the chosen one.
 
 The details' type (`TYPE` in `chart.js`): names 13px; a summary, an explanation, an answer and the field
@@ -180,7 +180,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
   `Input`), `searchView`. `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`. `drawing.js`: the
   first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: picker rows and badges.
-  `models.js`: `MODELS` (Default and the claude CLI's aliases), `isModelName`, `modelLabel`; draw/ask.js
+  `models.js`: `MODELS` (Default, Opus and Sonnet), `isModelName`, `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
   lowercased words, made once per chart when the search opens) and `searchChart(index, query)` (the best
   20, kept while looking rather than sorting every match).
