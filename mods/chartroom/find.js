@@ -70,6 +70,27 @@ command -v bun >/dev/null 2>&1 || { echo "bun is not on the PATH the Herdr app r
 ! drawing "$1/.chartroom" || { echo "a drawing runs here already" >&2; exit 4; };
 cd "$1" && mkdir -p .chartroom && (nohup bun "$2" "$1" $3 </dev/null >.chartroom/draw.log 2>&1 &) && echo started`;
 
+// What the panel asks before drawing a chart again from scratch: the project, how many files its
+// Claude describes again, about how many calls (40 files a call, and one for the parts) and about
+// how long (four calls at once, about 20 seconds each).
+const FILES_A_CALL = 40;
+const CALLS_AT_ONCE = 4;
+const CALL_SECONDS = 20;
+const grouped = (count) => String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+export function fromScratchWords({ name, files }) {
+  const calls = Math.ceil(files / FILES_A_CALL) + 1;
+  const seconds = Math.ceil(calls / CALLS_AT_ONCE) * CALL_SECONDS;
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.round((seconds / 3600) * 2) / 2;
+  const long = seconds < 60 ? "under a minute" : minutes < 90 ? `about ${minutes} minute${minutes === 1 ? "" : "s"}` : `about ${hours} hour${hours === 1 ? "" : "s"}`;
+  const which = files === 1 ? "the one file" : `all ${grouped(files)} files`;
+  return {
+    ask: `Draw ${name} again from scratch?`,
+    detail: `Your Claude names the parts again and describes ${which}: about ${grouped(calls)} calls, ${long}. The chart stays until the new one is done.`,
+  };
+}
+
 // sh -c STOP_DRAW stop <folder>: stops the folder's drawing, which stops the Claude it asked.
 export const STOP_DRAW = `${FUNCTIONS} drawing "$1/.chartroom" || { echo "no drawing runs there" >&2; exit 1; }; kill "$(cat "$1/.chartroom/pid")"`;
 
