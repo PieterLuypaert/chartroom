@@ -168,9 +168,13 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - **Impact.** `i`, or **Show impact** in a card's details (24px, 6px radius, a `t.border` frame, `t.accent`
   while on, "Hide impact"), lights what depends on the card picked, any number of steps away:
   - **Affected cards** are tinted in the accent by how many steps they are from the source (alpha `40`, `26`,
-    then `14` from three on) and framed in it, with a tab over their top-right edge (18px, 10.5px `t.accent`
-    on `t.background`): the steps, and "· 4 files" when files of theirs are affected.
-  - **The source's cards** are framed 2px in the accent, with a "source" tab.
+    then `14` from three on) and framed in it. A mark filled with the accent holds the steps in bold
+    `t.background`: on a card, a 20px square (5px radius) in a column of its own, centred down the card
+    beside the name and the line under it, so it keeps as much room above it as below, and as wide as the
+    icon's tile, so the name stays where it was; on a slim card, a 15px circle in the icon's place. Their
+    first line under the name says in the accent how much of them is affected ("21 of 32 files affected",
+    "affected"). In the card itself, not over its edge, where the lines' rings sit.
+  - **The source's cards** are framed 2px in the accent, the mark holding their icon, the line "source".
   - **The lines** from each affected card towards the source are lit in place of the card picked's.
   - **The rest dims** to 35% opacity, the other lines as on a focused level.
   - **The details** of the source say "14 parts and 52 files depend on it" ("Nothing on the chart depends on it.",

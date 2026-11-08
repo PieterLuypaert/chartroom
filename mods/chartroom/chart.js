@@ -185,8 +185,7 @@ function framed(el, t, box, isSelected, onPick, onHover, zoom = 1) {
     .when(Boolean(box.isDimmed), (card) => card.opacity(DIMMED))
     .tooltip(box.summary || box.label)
     .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
-    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx))
-    .when(Boolean(box.isSource || box.impact), (card) => card.child(impactTab(t, box, zoom)));
+    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx));
 }
 
 // How faint a card the impact does not reach is, and how strong an affected card's tint is by how
@@ -195,17 +194,24 @@ const DIMMED = 0.35;
 const STEP_TINTS = ["40", "26", "14"];
 const impactTint = (t, box) => (box.impact ? thin(t.accent, STEP_TINTS[Math.min(box.impact.steps, STEP_TINTS.length) - 1]) : null);
 
-// Above an affected card, how many steps it is from the source and how many of its files are
-// affected; above the source's card, that it is the source. A tab over the card's top edge, so it
-// hides none of the card.
-function impactTab(t, box, zoom) {
-  const files = box.impact?.files ?? 0;
-  return h_flex().absolute().top(-9 * zoom).right(10 * zoom).h(18 * zoom).px(6 * zoom).gap(4 * zoom).items_center().rounded(9 * zoom)
-    .border_1().border_color(t.accent).bg(t.background).text_size(10.5 * zoom).text_color(t.accent)
-    .when(Boolean(box.isSource), (el) => el.font_medium().child("source"))
-    .when(!box.isSource, (el) => el.child(div().font_semibold().child(String(box.impact.steps)))
-      .when(files > 0, (tab) => tab.child(div().text_color(t.muted).child(`· ${files} file${files === 1 ? "" : "s"}`))));
+// What the impact says on a card, in the card itself, not over its edge where the lines' rings sit:
+// in its icon's place a mark filled with the accent, the steps away on a card the impact reaches,
+// its icon on the source's; and in place of its second line, in the accent, how much of it is
+// affected, or that it is the source.
+function impactMark(t, box, size, zoom, isRound = false) {
+  return div().size(size).flex_none().rounded(isRound ? size / 2 : 5 * zoom).bg(t.accent).flex().items_center().justify_center()
+    .when(Boolean(box.isSource), (el) => el.child(svg(iconOf(box)).size(size * 0.6).text_color(t.background)))
+    .when(!box.isSource, (el) => el.text_size(size * 0.62).font_bold().text_color(t.background).child(String(box.impact.steps)));
 }
+
+function impactWords(box) {
+  if (box.isSource) return "source";
+  const { files } = box.impact;
+  const total = box.kind === "file" ? 0 : box.stats?.files ?? 0;
+  if (!files) return "affected";
+  return total ? `${files} of ${plural(total, "file")} affected` : box.kind === "file" ? "affected" : `${plural(files, "file")} affected`;
+}
+
 
 const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_none().text_color(t.dim);
 
@@ -213,22 +219,40 @@ const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_n
 // of what it does, else what it is. Outside it: a slim pill with its icon and name.
 function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
   const ground = isSelected ? t.selected : impactTint(t, box) ?? (box.isLighted ? thin(t.accent, "1c") : box.isInside && box.kind !== "external" ? t.background : t.chrome);
+  const isMarked = Boolean(box.isSource || box.impact);
   if (!box.isInside || box.kind === "external") {
-    return framed(h_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(box.h / 2).bg(ground).px(11 * zoom).gap(7 * zoom).items_center()
-      .child(svg(iconOf(box)).size(13 * zoom).flex_none().text_color(t.muted))
+    return framed(h_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(box.h / 2).bg(ground).pl(13 * zoom).pr(11 * zoom).gap(7 * zoom).items_center()
+      .child(isMarked ? impactMark(t, box, 15 * zoom, zoom, true) : svg(iconOf(box)).size(13 * zoom).flex_none().text_color(t.muted))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5 * zoom).text_color(t.muted).child(box.label))
       .when(box.isOpenable, (el) => el.child(chevron(t, 11 * zoom)));
   }
   const isTall = direction === "RIGHT";
   const route = box.kind === "file" && isTall ? box.routes?.[0] : null;
-  const about = isTall ? twoLines(box.summary || subline(box), box.w - 24 * zoom, 11.8 * zoom).slice(0, route ? 1 : 2) : [subline(box)];
-  return framed(v_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(9 * zoom).bg(ground).px(11 * zoom).gap(4 * zoom).justify_center()
+  // With the impact, its mark takes a column of its own beside the words, so the words are narrower.
+  const width = box.w - (isMarked ? 52 : 24) * zoom;
+  const about = isTall ? twoLines(box.summary || subline(box), width, 11.8 * zoom).slice(0, route ? 1 : 2) : [subline(box)];
+  // With the impact, its words take the first line, so the card keeps its height.
+  const lines = isMarked ? [impactWords(box), ...about].slice(0, about.length) : about;
+  const name = h_flex().min_w(0).gap(8 * zoom).items_center()
+    .child(div().flex_1().min_w(0).truncate().text_size(13 * zoom).font_semibold().text_color(t.foreground).child(box.label))
+    .when(box.isOpenable, (el) => el.child(chevron(t, 12 * zoom)));
+  const words = lines.map((line, index) => div().min_w(0).truncate().text_size((isTall ? 11.8 : 11) * zoom)
+    .text_color(isMarked && index === 0 ? t.accent : isTall ? t.muted : t.dim).when(isMarked && index === 0, (el) => el.font_medium()).child(line));
+  const card = framed(isMarked ? h_flex() : v_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(9 * zoom).bg(ground).pl(14 * zoom).pr(11 * zoom);
+  // The mark in a column of its own, centred down the card, so it keeps as much room above it as
+  // below, as wide as the icon's tile, so the name stays where it was.
+  if (isMarked) {
+    return card.gap(8 * zoom).items_center()
+      .child(impactMark(t, box, 20 * zoom, zoom))
+      .child(v_flex().flex_1().min_w(0).gap(4 * zoom).justify_center().child(name).children(words)
+        .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom))));
+  }
+  return card.gap(4 * zoom).justify_center()
     .child(h_flex().min_w(0).gap(8 * zoom).items_center()
       .child(div().size(20 * zoom).flex_none().rounded(5 * zoom).bg(t.raised).flex().items_center().justify_center()
         .child(svg(iconOf(box)).size(12 * zoom).text_color(t.muted)))
-      .child(div().flex_1().min_w(0).truncate().text_size(13 * zoom).font_semibold().text_color(t.foreground).child(box.label))
-      .when(box.isOpenable, (el) => el.child(chevron(t, 12 * zoom))))
-    .children(about.map((line) => div().min_w(0).truncate().text_size((isTall ? 11.8 : 11) * zoom).text_color(isTall ? t.muted : t.dim).child(line)))
+      .child(name))
+    .children(words)
     .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom)));
 }
 
@@ -246,13 +270,18 @@ function routeChip(t, route, more, zoom) {
 // more.
 function plainCard(t, box, isSelected, onPick, onHover) {
   const isInside = box.isInside;
-  return framed(v_flex(), t, box, isSelected, onPick, onHover).px(10).gap(2).justify_center().rounded(8)
-    .bg(isSelected ? t.selected : impactTint(t, box) ?? (isInside ? t.background : t.chrome))
-    .child(h_flex().min_w(0).gap(6).items_center()
-      .child(svg(iconOf(box)).size(13).flex_none().text_color(isInside ? t.muted : t.dim))
-      .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().text_color(isInside ? t.foreground : t.muted).child(box.label))
-      .when(box.isOpenable, (el) => el.child(chevron(t, 12))))
-    .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(subline(box)));
+  const isMarked = Boolean(box.isSource || box.impact);
+  const name = h_flex().min_w(0).gap(6).items_center()
+    .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().text_color(isInside ? t.foreground : t.muted).child(box.label))
+    .when(box.isOpenable, (el) => el.child(chevron(t, 12)));
+  const second = div().min_w(0).truncate().text_size(11).text_color(isMarked ? t.accent : t.dim).child(isMarked ? impactWords(box) : subline(box));
+  const card = framed(isMarked ? h_flex() : v_flex(), t, box, isSelected, onPick, onHover).pl(13).pr(10).rounded(8)
+    .bg(isSelected ? t.selected : impactTint(t, box) ?? (isInside ? t.background : t.chrome));
+  // As on ELK's cards: the mark in a column of its own, centred down the card.
+  if (isMarked) return card.gap(6).items_center().child(impactMark(t, box, 16, 1)).child(v_flex().flex_1().min_w(0).gap(2).justify_center().child(name).child(second));
+  return card.gap(2).justify_center()
+    .child(h_flex().min_w(0).gap(6).items_center().child(svg(iconOf(box)).size(13).flex_none().text_color(isInside ? t.muted : t.dim)).child(name))
+    .child(second);
 }
 
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
