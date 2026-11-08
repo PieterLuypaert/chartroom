@@ -36,7 +36,7 @@ This links the mod, binds its keys and adds a **Chartroom** button to your layou
 
 Click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
 
-`↑` `↓` pick · `↵` `⌫` in and up · `/` find · `e` explain · `a` ask · `d` details · `−` `+` `0` zoom · `u` update · `p` project
+`↑` `↓` pick · `↵` `⌫` in and up · `/` find · `e` explain · `a` ask · `d` details · `−` `+` `0` zoom · `u` update · `⇧U` draw again · `p` project
 
 ## How it works
 
