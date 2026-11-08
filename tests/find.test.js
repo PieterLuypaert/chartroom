@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asksFor, asksFrom, CHANGED, chartedFrom, FIND_ASKS, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, FIND_ASKS, FIND_CHARTS, FIND_MAP, INLINE_BYTES, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -51,7 +51,7 @@ const found = (folder) => mapFrom(sh(FIND_MAP, folder).stdout);
 
 describe("FIND_MAP", () => {
   test("finds the chart from a folder deep inside the project, with no drawing", () => {
-    expect(found(join(mapped, "src", "deep"))).toEqual({ folder: mapped, isDrawing: false, progress: null, log: "", kind: "chartroom", text: '{"schema":"chartroom/chart@1"}' });
+    expect(found(join(mapped, "src", "deep"))).toEqual({ folder: mapped, isDrawing: false, progress: null, log: "", kind: "chartroom", stamp: expect.stringMatching(/^30:\d+$/), size: 30, text: '{"schema":"chartroom/chart@1"}' });
   });
 
   test("tells a running drawing and how far it is", () => {
@@ -59,7 +59,7 @@ describe("FIND_MAP", () => {
   });
 
   test("tells a drawing that ended without a chart, with the end of its log", () => {
-    expect(found(failed)).toMatchObject({ folder: failed, isDrawing: false, progress: { step: "failed" }, log: "line one Not logged in", kind: "none", text: "" });
+    expect(found(failed)).toMatchObject({ folder: failed, isDrawing: false, progress: { step: "failed" }, log: "line one Not logged in", kind: "none", stamp: null, text: "" });
   });
 
   test("does not take a pid another program runs for a drawing", () => {
@@ -68,6 +68,37 @@ describe("FIND_MAP", () => {
 
   test("does not hand a project to a folder above it that has only a failed drawing", () => {
     expect(sh(FIND_MAP, bare).code).toBe(3);
+  });
+});
+
+describe("a chart bigger than one exec hands back", () => {
+  // A program run through Herdr hands back at most 8 MiB, so a bigger chart comes in parts.
+  const text = `{"schema":"chartroom/chart@1","files":[${Array.from({ length: 400000 }, (_, index) => `{"p":"src/file-${index}.ts","d":"What file ${index} does."}`).join(",")}]}`;
+  const big = project("armada", { ".chartroom/chart.json": text });
+  const runHere = async (args) => {
+    const run = Bun.spawnSync(args, { env: { HOME: home, PATH: process.env.PATH } });
+    if (run.exitCode !== 0) throw new Error(run.stderr.toString());
+    return run.stdout.toString();
+  };
+
+  test("FIND_MAP says how big it is and when it was written, and leaves the chart out", () => {
+    expect(text.length).toBeGreaterThan(INLINE_BYTES * 2);
+    expect(found(big)).toMatchObject({ folder: big, kind: "chartroom", stamp: expect.stringMatching(new RegExp(`^${text.length}:\\d+$`)), size: text.length, text: null });
+  });
+
+  test("chartInParts reads it whole, a part at a time", async () => {
+    const { stamp, size } = found(big);
+    expect(await chartInParts(runHere, big, stamp, size)).toBe(text);
+  });
+
+  test("chartInParts gives up on a chart written again while it is read", async () => {
+    expect(await chartInParts(runHere, big, "1:1", text.length)).toBeNull();
+  });
+
+  test("chartInParts refuses a big chart written before it was written in ASCII, rather than read it again and again", async () => {
+    const old = project("galleon", { ".chartroom/chart.json": `{"name":"Café"}${" ".repeat(INLINE_BYTES)}` });
+    const { stamp, size } = found(old);
+    await expect(chartInParts(runHere, old, stamp, size)).rejects.toThrow("update it");
   });
 });
 

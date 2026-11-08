@@ -1,9 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { extract, langOf, urlOf } from "../draw/extract.js";
 import { aliasesOf, cargoCrateOf, endpointFor, packageOf, psr4Of, resolverFor, withoutComments } from "../draw/resolve.js";
-import { connect } from "../draw/scan.js";
+import { connect, scan } from "../draw/scan.js";
 
 describe("extract", () => {
+  test("numbers the lines of a big file's requests and routes as fast as a small one's", () => {
+    const text = Array.from({ length: 60000 }, (_, index) => `export const get${index} = () => fetch("/api/tides/${index}");`).join("\n");
+    const started = performance.now();
+    const found = extract("src/client.ts", text);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(found.requests).toHaveLength(60000);
+    expect(found.requests.at(-1)).toMatchObject({ path: "/api/tides/59999", line: 60000 });
+    expect(extract("app.py", `import x\n\n@app.get("/a")\ndef a(): pass\n\n\n@app.post("/b")\ndef b(): pass\n`).routes.map((route) => route.line)).toEqual([3, 7]);
+  });
+
   test("reads a TypeScript file's imports, exports, routes and requests", () => {
     const found = extract("api/src/orders.ts", [
       "/** Orders: checkout and history. */",
@@ -369,5 +382,37 @@ describe("connect", () => {
       "src/orders.rs > crates/core/src/lib.rs Money",
     ]);
     expect(project.files.find((file) => file.path === "src/orders.rs").packages).toEqual(["tokio"]);
+  });
+});
+
+describe("scan, however large the project", () => {
+  const work = realpathSync(mkdtempSync(join(tmpdir(), "chartroom-scan-")));
+  const write = (project, path, text) => {
+    mkdirSync(join(work, project, path, ".."), { recursive: true });
+    writeFileSync(join(work, project, path), text);
+  };
+  afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+  test("reads every code file of a project with more than 6000 of them", async () => {
+    for (let index = 0; index < 6100; index += 1) write("many", `src/part-${index % 50}/file-${index}.ts`, `export const value${index} = ${index};\n`);
+    write("many", "src/index.ts", 'import { value6099 } from "./part-49/file-6099";\nexport default value6099;\n');
+    const read = await scan(join(work, "many"));
+    expect(read.files).toHaveLength(6101);
+    expect(read.links.map((one) => `${one.a} > ${one.b}`)).toEqual(["src/index.ts > src/part-49/file-6099.ts"]);
+  });
+
+  test("reads a code file however big it is, with its imports", async () => {
+    write("big", "src/tables.ts", `import { port } from "./port";\nexport const rows = [\n${"  [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],\n".repeat(16000)}];\n`);
+    write("big", "src/port.ts", "export const port = 1;\n");
+    const read = await scan(join(work, "big"));
+    const tables = read.files.find((file) => file.path === "src/tables.ts");
+    expect(tables.loc).toBe(16004);
+    expect(read.links.map((one) => `${one.a} > ${one.b}`)).toEqual(["src/tables.ts > src/port.ts"]);
+  });
+
+  test("leaves out a file with a code file's name that is not text", async () => {
+    write("binary", "src/real.ts", "export const real = true;\n");
+    write("binary", "src/packed.js", "\0\0\0binary");
+    expect((await scan(join(work, "binary"))).files.map((file) => file.path)).toEqual(["src/real.ts"]);
   });
 });

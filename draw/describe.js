@@ -5,6 +5,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { askClaude } from "./claude.js";
 
+// Adds a value to the list a map keeps under a key, in place: copying the list for each value grows
+// with the square of a big project's size.
+const push = (map, key, value) => {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
+};
+
 const BATCH = 40;
 const AT_ONCE = 4;
 const HEAD_LINES = 24;
@@ -24,7 +31,7 @@ export function batchesOf(files, owner) {
   const byPart = new Map();
   for (const file of files) {
     const part = owner.get(file.path) ?? null;
-    byPart.set(part, [...(byPart.get(part) ?? []), file]);
+    push(byPart, part, file);
   }
   const batches = [];
   for (const [part, list] of byPart) for (let start = 0; start < list.length; start += BATCH) batches.push({ part, files: list.slice(start, start + BATCH) });
@@ -36,7 +43,7 @@ export function usesOf(links) {
   const uses = new Map();
   const usedBy = new Map();
   for (const link of links) {
-    uses.set(link.a, [...(uses.get(link.a) ?? []), link.b]);
+    push(uses, link.a, link.b);
     usedBy.set(link.b, (usedBy.get(link.b) ?? 0) + 1);
   }
   return { uses, usedBy };
@@ -77,7 +84,7 @@ export function headOf(source) {
 export async function describeAll({ root, project, parts, batches, scan, onDone }) {
   const { uses, usedBy } = usesOf(scan.links);
   const routesOf = new Map();
-  for (const route of scan.routes) routesOf.set(route.file, [...(routesOf.get(route.file) ?? []), route]);
+  for (const route of scan.routes) push(routesOf, route.file, route);
   const result = { files: [], endpoints: [], errors: [] };
   let next = 0;
   let done = 0;

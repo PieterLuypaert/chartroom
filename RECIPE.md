@@ -196,7 +196,11 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   [{p, n, loc, name, d, rev}], `routes` [{f, m, p, name}], `links` [{a, b, w, labels}]; refs are `n:<id>`,
   `f:<path>`, `r:<index>`. `levelOf(chart, focus)` gives the inside cards (child parts plus the focus's own
   files), the outside cards linked to them (`side` "above" when they only use the level, else "below"), and
-  one line per pair and direction with a weight and labels.
+  one line per pair and direction with a weight and labels. `draw/build.js`'s `chartText` writes the file in
+  ASCII alone (`\uXXXX` for the rest), the other fields on the first line, then each part, file, endpoint and
+  link on a line of its own (`"nodes":[`, one per line, `],` …, `]}`): still JSON. `readChart` reads it a line
+  at a time, and any other JSON (a chart written before, on one line) in one go. Reading also files each link
+  under every part one of its ends is in (`linksUnder`), so a level goes through its own links, not all.
 - `layout.js`: `elkLevel` (bands 0/1/2, card sizes per direction) and `fromElk` (zoom, centering, band
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
@@ -260,21 +264,36 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   alpha to `#rrggbb`; an accent that already has an alpha makes those fills solid.
 - `on_size_change` sizes are in app-zoomed units: divide by `settings().zoom`.
 - Herdr runs mods on QuickJS and interrupts a render that takes longer than about 50 ms ("This view could not
-  be re-rendered"). On a 6000-file chart with 26,000 links, a level works out each card once (`levelOf`), the
-  search index is made when the search opens, and a key typed only searches it. The lines' paths and their
-  rings (circles of two arcs) are built once per layout and kept, so a hover or a pick only adds the lines it
-  lights. The plain layout, for a level ELK cannot take, is worked out in a task with its lines, as ELK's is,
-  never in a render: a level of 800 cards and 2400 lines takes about 25 ms to lay out and 15 ms to build.
-- `exec` returns at most 8 MiB (`MAX_OUTPUT`): a bigger chart fails with a message saying so. `lay.js` gets
-  its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the plain layout. Up to 12 levels one
-  click away are laid out ahead, each under 100 KiB: worked out one per turn of the timer (each takes up to
-  30 ms on a big chart), then laid out by ELK together; a later run, another chart or another level shown
-  stops it. `levelOf` keeps each level per chart, so going to one laid out ahead does not work it out again.
-  Without `elkjs`, every level gets the plain layout, with a note saying why.
+  be re-rendered"), and any script that runs on for some hundreds of milliseconds (a module's top level or
+  `init` between 400 and 800 ms). So the work a chart's size drives runs in slices (`model.js`: a generator
+  yields once it has run 20 ms, `inSlices` gives Herdr the turn between slices with `cx.timer.after(0)`, and
+  bun and the tests run the same steps straight through): reading the chart, each level, the search index.
+  A chart read is parsed and indexed in the read's task, and the level it opens on worked out, while the
+  chart before stays on screen; then its search index. Measured in QuickJS on a 20,000-file chart (12 MB,
+  64,000 links): reading 398 ms in 20 slices, none over 21 ms; the top level 52 ms in 3, a part 16 ms, an
+  area 1 ms (33 ms when every level went through every link). On 60,000 files (36 MB, 192,000 links) the
+  slices stay at 20 ms. A move to another level (`showLevel`: in, up, the trail, a search result) shows it at
+  once when it is worked out, else works it out in slices first, the level shown staying until then. The
+  lines' paths and their rings (circles of two arcs) are built once per layout and kept, so a hover or a pick
+  only adds the lines it lights. The plain layout, for a level ELK cannot take, is worked out in a task with
+  its lines, as ELK's is, never in a render: a level of 800 cards and 2400 lines takes about 25 ms to lay
+  out and 15 ms to build.
+- `exec` returns at most 8 MiB. A chart up to 7 MiB comes with `FIND_MAP`; a bigger one, in parts of 7 MiB
+  (`READ_PART`, through `dd`), and only when its stamp (size and when it was written) changed since the last
+  read. A part whose stamp is not the first part's means the chart was written again while it was read: it
+  is read again after. `lay.js` gets its levels as an argument, kept under 400 KiB (`MAX_LAY_ARG`), else the
+  plain layout. Up to 12 levels one click away are laid out ahead, each under 100 KiB: worked out in slices
+  in a task, then laid out by ELK together; a later run, another chart or another level shown stops it.
+  `levelOf` keeps each level per chart, so going to one laid out ahead does not work it out again. Without
+  `elkjs`, every level gets the plain layout, with a note saying why.
 - Polls: the chart is read again every 15s (`READ_MS`) while remote, chartless, drawing or failed; the
-  changed check every 30s; answers and explanations every 1.5s while they run. Limits: 6000 files of at most
-  400 KiB in a scan; a 15-minute timeout and one retry per Claude call; answers: `ask.js` keeps
-  the newest 8 per card and per level, 200 in all, and the panel reads 200 and shows 8.
+  changed check every 30s; answers and explanations every 1.5s while they run. Limits: none on how many code
+  files a scan reads or how big they are (a file that is not text is left out); a 15-minute timeout and one
+  retry per Claude call; answers: `ask.js` keeps the newest 8 per card and per level, 200 in all, and the
+  panel reads 200 and shows 8. On a synthetic 60,000-file project with a stand-in for Claude, the scan and
+  the build take about 20 s and 1.1 GB; the scan alone reads 20,000 files with 64,000 links in 2.2 s. A
+  file's routes and requests are numbered by halving its line starts, counted once: 5 MB of code reads in
+  about 45 ms in every language.
 - A drawing runs detached and its `pid` file is the lock. It counts as running only while that pid lives and
   `ps` shows `draw/draw.js`, so a stale pid is never taken for one. The home folder is refused. `bun` must
   be on the PATH the Herdr app runs programs with.

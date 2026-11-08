@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { askClaude, stopAll } from "./claude.js";
 import { assign, checkParts, PARTS_SCHEMA, partsPrompt } from "./parts.js";
 import { batchesOf, describeAll, routeKey } from "./describe.js";
-import { buildChart } from "./build.js";
+import { buildChart, chartText } from "./build.js";
 import { scan } from "./scan.js";
 
 // More than this share of files in no part asks Claude for the parts again on an update.
@@ -96,7 +96,7 @@ async function draw() {
   await report({ step: "build", note: described.note });
   const chart = buildChart({ scan: scanned, parts, owner, described });
   await writeWhole(join(out, "state.json"), JSON.stringify({ version: 1, parts, files: described.files, endpoints: described.endpoints }));
-  await writeWhole(join(out, "chart.json"), JSON.stringify(chart));
+  await writeWhole(join(out, "chart.json"), chartText(chart));
   await report({ step: "done", done: progress.total });
 }
 

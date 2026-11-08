@@ -13,32 +13,119 @@ const push = (map, key, value) => {
 };
 const baseName = (path) => path.slice(path.lastIndexOf("/") + 1);
 
+// Work on a big chart is cut into slices. A step function is a generator that yields once it has
+// run SLICE_MS since it last went on: the panel gives Herdr the turn between slices, as Herdr stops
+// a script that runs on too long (about 50 ms in a render), while bun and the tests run the steps
+// straight through.
+const SLICE_MS = 20;
+export function sliceClock(sliceMs = SLICE_MS) {
+  let start = Date.now();
+  return { isDue: () => Date.now() - start >= sliceMs, restart: () => (start = Date.now()) };
+}
+
+export function straight(steps) {
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+// Runs steps, waiting for `pause` (which gives Herdr the turn) between slices.
+export async function inSlices(steps, pause) {
+  let step = steps.next();
+  while (!step.done) {
+    await pause();
+    step = steps.next();
+  }
+  return step.value;
+}
+
 // The map, checked and indexed. Throws an Error that says what is wrong in words a person reads.
-export function readChart(text) {
-  let graph;
+export const readChart = (text) => straight(chartSteps(text));
+export const readChartInSlices = (text, pause, sliceMs) => inSlices(chartSteps(text, sliceMs), pause);
+
+function* chartSteps(text, sliceMs) {
+  const clock = sliceClock(sliceMs);
+  const graph = yield* graphSteps(text, clock);
+  if (!SCHEMAS.includes(graph?.schema)) throw new Error(`the chart is ${graph?.schema ?? "in an unknown format"}, and the Chartroom reads ${SCHEMAS.join(" and ")}`);
+  return yield* indexSteps(graph, clock);
+}
+
+// A chart written a line per part, file, endpoint and link (draw/build.js's chartText: a first line
+// that ends in a comma, then "nodes":[ on its own) is parsed a line at a time, so no slice parses
+// tens of megabytes; any other JSON, such as a chart written before on a single line, in one go.
+function* graphSteps(text, clock) {
   try {
-    graph = JSON.parse(text);
+    const first = text.indexOf("\n");
+    const second = text.indexOf("\n", first + 1);
+    if (first < 1 || text[first - 1] !== "," || !/^"\w+":\[$/.test(text.slice(first + 1, second))) return JSON.parse(text);
+    const graph = JSON.parse(`${text.slice(0, first - 1)}}`);
+    let list = null;
+    for (let at = first + 1; at < text.length; ) {
+      const next = text.indexOf("\n", at);
+      const end = next === -1 ? text.length : next;
+      const line = text.slice(at, end);
+      at = end + 1;
+      const opened = /^"(\w+)":\[$/.exec(line);
+      if (opened) list = graph[opened[1]] = [];
+      else if (line === "]," || line === "]}") list = null;
+      else list.push(JSON.parse(line.endsWith(",") ? line.slice(0, -1) : line));
+      if (clock.isDue()) {
+        yield;
+        clock.restart();
+      }
+    }
+    return graph;
   } catch (error) {
     throw new Error(`the chart is not valid JSON (${error.message})`);
   }
-  if (!SCHEMAS.includes(graph?.schema)) throw new Error(`the chart is ${graph?.schema ?? "in an unknown format"}, and the Chartroom reads ${SCHEMAS.join(" and ")}`);
-  return indexChart(graph);
 }
 
-function indexChart(graph) {
+function* indexSteps(graph, clock) {
   const nodeList = graph.nodes ?? [];
-  const fileList = graph.files ?? [];
   const nodes = new Map(nodeList.map((node) => [node.id, node]));
   const children = new Map();
   for (const node of nodeList) push(children, node.parent ?? null, node.id);
-  const files = new Map(fileList.map((file) => [file.p, file]));
+  const files = new Map();
   const filesOf = new Map();
-  for (const file of fileList) push(filesOf, file.n, file.p);
+  for (const file of graph.files ?? []) {
+    files.set(file.p, file);
+    push(filesOf, file.n, file.p);
+    if (clock.isDue()) {
+      yield;
+      clock.restart();
+    }
+  }
   const routes = graph.routes ?? [];
   const routesOf = new Map();
   routes.forEach((route, index) => push(routesOf, route.f, index));
   const name = graph.project?.name || graph.meta?.rootName || "This app";
-  return { name, summary: graph.project?.summary ?? "", meta: graph.meta ?? {}, nodes, children, files, filesOf, routes, routesOf, links: graph.links ?? [] };
+  const chart = { name, summary: graph.project?.summary ?? "", meta: graph.meta ?? {}, nodes, children, files, filesOf, routes, routesOf, links: graph.links ?? [] };
+  chart.linksUnder = yield* linksUnderSteps(chart, clock);
+  return chart;
+}
+
+// The links a part's level can show: those with an end in the part or in a part inside it, in the
+// chart's order. A level goes through its own instead of every link: on a project of tens of
+// thousands of files, every link takes a level longer than Herdr lets a render wait.
+function* linksUnderSteps(chart, clock) {
+  const chains = new Map();
+  const chainOf = (ref) => {
+    const node = spotOf(chart, ref)?.node;
+    if (node == null) return [];
+    if (!chains.has(node)) chains.set(node, lineage(chart, node));
+    return chains.get(node);
+  };
+  const under = new Map();
+  for (const link of chart.links) {
+    const from = chainOf(link.a);
+    for (const part of from) push(under, part, link);
+    for (const part of chainOf(link.b)) if (!from.includes(part)) push(under, part, link);
+    if (clock.isDue()) {
+      yield;
+      clock.restart();
+    }
+  }
+  return under;
 }
 
 // The projects to pick a chart from: every space's folder, then the folders picked by hand, each
@@ -153,15 +240,36 @@ export function trailOf(chart, focus) {
 // panel asks for the same ones again (the level shown, those laid out ahead, the one gone back to).
 // A level is never changed by those who ask for it.
 const levelsByChart = new WeakMap();
-export function levelOf(chart, focus = null) {
-  const at = focus !== null && chart.nodes.has(focus) ? focus : null;
+const levelsOf = (chart) => {
   if (!levelsByChart.has(chart)) levelsByChart.set(chart, new Map());
-  const levels = levelsByChart.get(chart);
-  if (!levels.has(at)) levels.set(at, workOutLevel(chart, at));
+  return levelsByChart.get(chart);
+};
+const levelAt = (chart, focus) => (focus !== null && chart.nodes.has(focus) ? focus : null);
+
+// Whether a level is worked out already, so showing it costs a render nothing.
+export const isLevelReady = (chart, focus) => levelsOf(chart).has(levelAt(chart, focus));
+
+export function levelOf(chart, focus = null) {
+  const at = levelAt(chart, focus);
+  const levels = levelsOf(chart);
+  if (!levels.has(at)) levels.set(at, straight(levelSteps(chart, at)));
   return levels.get(at);
 }
 
-function workOutLevel(chart, at) {
+// The same level, worked out in slices with `pause` between them, for the panel to work out ahead
+// of the render that shows it.
+export async function levelInSlices(chart, focus, pause, sliceMs) {
+  const at = levelAt(chart, focus);
+  const levels = levelsOf(chart);
+  if (!levels.has(at)) {
+    const level = await inSlices(levelSteps(chart, at, sliceMs), pause);
+    if (!levels.has(at)) levels.set(at, level);
+  }
+  return levels.get(at);
+}
+
+function* levelSteps(chart, at, sliceMs) {
+  const clock = sliceClock(sliceMs);
   const inside = [
     ...(chart.children.get(at) ?? []).map((id) => partCard(chart, id, true)),
     ...(at === null ? [] : (chart.filesOf.get(at) ?? []).map((path) => fileCard(chart, path))),
@@ -169,7 +277,11 @@ function workOutLevel(chart, at) {
   const cardOf = cardsOn(chart, at);
   const lines = new Map();
   const outside = new Map();
-  for (const link of chart.links) {
+  for (const link of at === null ? chart.links : chart.linksUnder.get(at) ?? []) {
+    if (clock.isDue()) {
+      yield;
+      clock.restart();
+    }
     const from = cardOf(link.a);
     const to = cardOf(link.b);
     if (!from || !to || from.id === to.id || (!from.isInside && !to.isInside)) continue;

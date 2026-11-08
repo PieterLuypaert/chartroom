@@ -10,8 +10,6 @@ import { aliasesOf, cargoCrateOf, endpointFor, goModuleOf, psr4Of, resolverFor }
 // keeps them. In a folder git does not know, the usual build and cache folders are left out too.
 const SKIPPED = new Set(["node_modules", "vendor", "dist", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".chartroom", ".git"]);
 const SKIPPED_WITHOUT_GIT = new Set(["build", "out", "target", "coverage", ".turbo", ".cache", ".venv", "venv"]);
-const MAX_FILE_BYTES = 400 * 1024;
-const MAX_FILES = 6000;
 const READ_AT_ONCE = 64;
 
 async function git(dir, args) {
@@ -60,9 +58,10 @@ async function walk(dir, prefix) {
   return out;
 }
 
+// A file's text, however big; null for what is not a file, or not text.
 async function readText(path) {
   const info = await stat(path).catch(() => null);
-  if (!info?.isFile() || info.size > MAX_FILE_BYTES) return null;
+  if (!info?.isFile()) return null;
   const text = await readFile(path, "utf8");
   return text.includes("\0") ? null : text;
 }
@@ -90,20 +89,19 @@ export async function scan(folder, { onFile = () => {} } = {}) {
     }
   }
   listed.sort((a, b) => a.path.localeCompare(b.path));
-  const isCut = listed.length > MAX_FILES;
   let read = 0;
-  const files = (await inBatches(listed.slice(0, MAX_FILES), async (file) => {
+  const files = (await inBatches(listed, async (file) => {
     // A file that cannot be read (gone since git listed it, or not ours to read) is left out alone.
     const text = await readText(join(root, file.path)).catch((error) => {
       console.log(`chartroom: ${file.path} was left out: ${error.message}`);
       return null;
     });
-    onFile(++read, Math.min(listed.length, MAX_FILES));
+    onFile(++read, listed.length);
     if (text === null) return null;
     return { ...file, ...extract(file.path, text), loc: text.split("\n").length, hash: Bun.hash(text).toString(16) };
   })).filter(Boolean);
   const resolve = resolverFor(files, await configsOf(root, configs));
-  return { root, name: basename(root), repos: await repoFacts(repos), isCut, ...connect(files, resolve) };
+  return { root, name: basename(root), repos: await repoFacts(repos), ...connect(files, resolve) };
 }
 
 async function configsOf(root, paths) {

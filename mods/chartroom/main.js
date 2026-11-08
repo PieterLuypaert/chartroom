@@ -10,13 +10,13 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, pickerItems, projectsOf, readChart } from "./model.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
-import { searchChart, searchIndexOf } from "./search.js";
+import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
 import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
-import { asksFor, asksFrom, CHANGED, chartedFrom, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
@@ -29,7 +29,6 @@ const ICONS = "mods/workspace-chrome";
 // how often the project is looked in again while it has no chart or is being drawn.
 const READ_MS = 15000;
 // exec hands back at most 8 MiB, so a bigger chart arrives cut short.
-const MAX_OUTPUT = 8 * 1024 * 1024;
 // Kept in localStorage: the project picked (null: follow the focused space), and the folders
 // chosen by hand, the latest first.
 const PINNED = "pinned";
@@ -96,6 +95,8 @@ const isTab = () => Boolean(props()?.tab);
 // A tab of its own is open whenever it exists; the panel, while its column shows.
 const isOpen = () => isTab() || isShown();
 const baseName = (folder) => folder.slice(folder.lastIndexOf("/") + 1) || folder;
+// Gives Herdr the turn, between the slices of work on a big chart (model.js), from a task's cx.
+const pauseOn = (cx) => () => new Promise((resolve) => cx.timer.after(0, () => resolve()));
 
 // Where the focused pane is, as the Files and Changes panels find it.
 function location() {
@@ -167,7 +168,7 @@ export default class Chartroom extends View {
     Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelList: cx.focus_handle() });
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
-    Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null });
+    Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null, indexing: null, levelAsked: 0 });
     this.searchField = InputState.new({ placeholder: "Search the chart" });
     this.foundScroll = VirtualListScrollHandle.new();
     this.projectScroll = VirtualListScrollHandle.new();
@@ -182,7 +183,7 @@ export default class Chartroom extends View {
     Object.assign(this, { minimapDrag: null, isOnMinimap: false, headingHeight: null });
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
-    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, stamp: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
     this.moveTo(JSON.stringify(this.where()), this.where());
     if (asked.tab) Object.assign(this, { focus: asked.focus ?? null, selected: asked.selected ?? null });
     this.wasShown = isOpen();
@@ -261,7 +262,7 @@ export default class Chartroom extends View {
 
   remember() {
     this.views.delete(this.context);
-    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, stamp: this.stamp, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
     while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value);
   }
 
@@ -299,10 +300,12 @@ export default class Chartroom extends View {
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
     // Another project than the one showing: its own level and card, not the last one's.
-    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, focus: null, selected: null });
+    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, stamp: null, focus: null, selected: null });
     Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
-    if (found.kind === "none") Object.assign(this, { chart: null, text: null });
-    else if (found.text !== this.text) this.show(found.folder, found.text, result.stdout.length, cx);
+    if (found.kind === "none") Object.assign(this, { chart: null, text: null, stamp: null });
+    else if (found.text === null) await this.readInParts(context, place, found, cx);
+    else if (found.text !== this.text) await this.show(found.text, found.stamp, context, cx);
+    if (context !== this.context) return;
     this.watch(place, cx);
     if (this.folder !== this.asksFolder) this.loadAsks(cx);
   }
@@ -506,14 +509,34 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  show(folder, text, length, cx) {
-    try {
-      this.chart = readChart(text);
-    } catch (error) {
-      if (length >= MAX_OUTPUT * 0.9) throw new Error(`the chart in ${folder} is bigger than the 8 MiB the Chartroom reads`);
-      throw error;
-    }
+  // A chart too big for one exec, read in parts, and only when it was written again since the last
+  // read: on a big project every read moves tens of megabytes. One written again while it is read is
+  // read once more after.
+  async readInParts(context, place, found, cx) {
+    if (found.stamp === this.stamp) return;
+    const run = async ([command, ...args]) => {
+      const result = await exec(command, args, { on: place.on });
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `reading the chart ended with ${result.code}`);
+      return result.stdout;
+    };
+    const text = await chartInParts(run, found.folder, found.stamp, found.size);
+    if (context !== this.context) return;
+    if (text === null) this.isStale = true;
+    else await this.show(text, found.stamp, context, cx);
+  }
+
+  // A chart read: parsed, indexed and the level it opens on worked out in slices, in the read's task,
+  // while the chart before stays on screen. On a big project each takes longer than Herdr lets a
+  // script run on, and the level longer than a render may wait. Then, once it shows, its search
+  // index, so the first key typed finds at once.
+  async show(text, stamp, context, cx) {
+    const pause = pauseOn(cx);
+    const chart = await readChartInSlices(text, pause);
+    await levelInSlices(chart, chart.nodes.has(this.focus) ? this.focus : null, pause);
+    if (context !== this.context) return;
+    this.chart = chart;
     this.text = text;
+    this.stamp = stamp;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
     this.chartVersion += 1;
     this.layouts = new Map();
@@ -523,6 +546,7 @@ export default class Chartroom extends View {
     this.checkChanged(cx);
     // A card picked when the chart comes (a tab opened on it) is explained too.
     if (this.selected) this.explainSoon(cx);
+    this.indexSoon(cx);
   }
 
   // Asks git how far the code moved on since the chart was drawn: the commits past the head each
@@ -736,7 +760,7 @@ export default class Chartroom extends View {
   }
 
   forget() {
-    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
+    Object.assign(this, { folder: null, kind: "none", chart: null, text: null, stamp: null, progress: null, log: "", isDrawing: false, focus: null, selected: null, error: "" });
   }
 
   // Reads again when the chart or the drawing's progress changes: in .chartroom while the panel's
@@ -906,9 +930,10 @@ export default class Chartroom extends View {
   }
 
   // The levels one click away (the parts on this level, and the level above), laid out ahead so
-  // going there shows them at once. One level is worked out per turn of the timer: on a big chart
-  // each takes up to 30 ms, and all of them in one go held the panel up for over 100 ms. Then ELK
-  // lays them out together. A later run, another chart, or another level shown stops this one.
+  // going there shows them at once. Each is worked out in slices in a task (model.js): on a big
+  // chart one takes tens of milliseconds, and all of them in one go held the panel up for over
+  // 100 ms. Then ELK lays them out together. A later run, another chart, or another level shown
+  // stops this one.
   layAhead(cx) {
     const level = this.memo?.level;
     if (!level) return;
@@ -918,16 +943,18 @@ export default class Chartroom extends View {
     const queue = [...new Set(parts)].slice(0, MAX_AHEAD);
     const run = ++this.aheadCount;
     const chart = this.chart;
-    const wanted = [];
-    const next = (cx) => {
-      if (run !== this.aheadCount || chart !== this.chart || level.focus !== this.focus) return;
-      if (!queue.length) return this.lay(wanted, cx);
-      const part = queue.shift();
-      const one = { key: this.levelKey(part, direction), level: levelOf(chart, part), direction };
-      if (JSON.stringify(elkLevel(one.key, one.level, direction)).length < MAX_LAY_ARG / 4) wanted.push(one);
-      cx.timer.after(0, next);
-    };
-    cx.timer.after(0, next);
+    const isOver = () => run !== this.aheadCount || chart !== this.chart || level.focus !== this.focus;
+    cx.spawn(async (cx) => {
+      const pause = pauseOn(cx);
+      const wanted = [];
+      for (const part of queue) {
+        await pause();
+        if (isOver()) return;
+        const one = { key: this.levelKey(part, direction), level: await levelInSlices(chart, part, pause), direction };
+        if (JSON.stringify(elkLevel(one.key, one.level, direction)).length < MAX_LAY_ARG / 4) wanted.push(one);
+      }
+      if (!isOver()) this.lay(wanted, cx);
+    });
   }
 
   isWide() {
@@ -966,12 +993,31 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
+  // Shows another level, and with it the card `picked` (or none), then does `after`. A level worked
+  // out already shows at once; another is worked out first in slices in a task, the level shown
+  // staying until then, as a level of a big chart takes longer than a render may wait. A later move
+  // drops a move still waiting.
+  showLevel(focus, picked, cx, after = () => {}) {
+    const chart = this.chart;
+    const asked = ++this.levelAsked;
+    const go = (cx) => {
+      if (asked !== this.levelAsked || chart !== this.chart) return;
+      this.focus = focus;
+      this.selected = picked;
+      this.enter(cx);
+      after(cx);
+      cx.notify();
+    };
+    if (isLevelReady(chart, focus)) return go(cx);
+    cx.spawn(async (cx) => {
+      await levelInSlices(chart, focus, pauseOn(cx));
+      go(cx);
+    });
+  }
+
   open(card, cx) {
     if (!card?.isOpenable) return;
-    this.focus = card.part;
-    this.selected = null;
-    this.enter(cx);
-    cx.notify();
+    this.showLevel(card.part, null, cx);
   }
 
   // Up to the level around this one, with the part it came out of picked.
@@ -980,10 +1026,7 @@ export default class Chartroom extends View {
     const from = this.focus;
     const parent = this.chart.nodes.get(from)?.parent ?? null;
     // A part that is its own parent (a map with a loop in it) leads to the top.
-    this.focus = parent === from ? null : parent;
-    this.selected = `n:${from}`;
-    this.enter(cx);
-    cx.notify();
+    this.showLevel(parent === from ? null : parent, `n:${from}`, cx);
     return true;
   }
 
@@ -991,10 +1034,7 @@ export default class Chartroom extends View {
   goTo(part, cx) {
     let child = this.focus;
     for (let depth = 0; child !== null && depth < 64 && (this.chart.nodes.get(child)?.parent ?? null) !== part; depth += 1) child = this.chart.nodes.get(child)?.parent ?? null;
-    this.focus = part;
-    this.selected = child === null ? null : `n:${child}`;
-    this.enter(cx);
-    cx.notify();
+    this.showLevel(part, child === null ? null : `n:${child}`, cx);
   }
 
   step(view, by) {
@@ -1006,9 +1046,9 @@ export default class Chartroom extends View {
   }
 
   // The search in the header, its field taking the keyboard and what it finds over the chart; and the
-  // chart's keys again. The index is made here, once per chart, so a key typed only searches it.
+  // chart's keys again. The index is made once per chart (indexSoon), so a key typed only searches it.
   openSearch(cx) {
-    this.indexNow();
+    this.indexSoon(cx);
     Object.assign(this, { isSearching: true, found: [], foundCursor: 0 });
     this.searchField.set_value("");
     this.searchField.focus();
@@ -1030,17 +1070,27 @@ export default class Chartroom extends View {
 
   // What the field finds on the chart showing.
   searchFor(cx) {
-    if (!this.chart || !this.isSearching) return;
-    this.found = searchChart(this.indexNow(), this.searchField.value());
+    if (!this.chart || !this.isSearching || this.indexedChart !== this.chart) return;
+    this.found = searchChart(this.searchIndex, this.searchField.value());
     this.foundCursor = 0;
     if (this.found.length > 0) this.foundScroll.scroll_to_item(0);
     cx.notify();
   }
 
-  // The search index of the chart showing, made again only when the chart is read again.
-  indexNow() {
-    if (this.indexedChart !== this.chart) Object.assign(this, { searchIndex: searchIndexOf(this.chart), indexedChart: this.chart });
-    return this.searchIndex;
+  // The search index of the chart showing, made in slices in a task, once per chart: on a big chart
+  // it takes longer than a key may wait. A search opened before it is there finds what the field
+  // holds once it is.
+  indexSoon(cx) {
+    const chart = this.chart;
+    if (!chart || this.indexedChart === chart || this.indexing === chart) return;
+    this.indexing = chart;
+    cx.spawn(async (cx) => {
+      const index = await searchIndexInSlices(chart, pauseOn(cx));
+      if (this.indexing === chart) this.indexing = null;
+      if (this.chart !== chart) return;
+      Object.assign(this, { searchIndex: index, indexedChart: chart });
+      this.searchFor(cx);
+    });
   }
 
   // To a card found: the level it sits on, with the card picked, its lines lit and its details
@@ -1048,12 +1098,12 @@ export default class Chartroom extends View {
   jumpTo(one, cx) {
     if (!one || !this.chart) return;
     this.closeSearch(cx);
-    this.focus = one.focus !== null && this.chart.nodes.has(one.focus) ? one.focus : null;
-    this.selected = one.ref;
-    this.enter(cx);
-    this.light(cx);
-    this.explainSoon(cx);
-    if (this.detailsFolded) this.foldDetails(false, cx);
+    const focus = one.focus !== null && this.chart.nodes.has(one.focus) ? one.focus : null;
+    this.showLevel(focus, one.ref, cx, (cx) => {
+      this.light(cx);
+      this.explainSoon(cx);
+      if (this.detailsFolded) this.foldDetails(false, cx);
+    });
   }
 
   projects() {

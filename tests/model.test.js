@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { cardIdOn, detailsOf, isExplanationCurrent, levelOf, pickerItems, projectsOf, readChart, trailOf } from "../mods/chartroom/model.js";
+import { chartText } from "../draw/build.js";
+import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChart, readChartInSlices, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -217,5 +218,40 @@ describe("isExplanationCurrent", () => {
     const older = drawnAt("2026-11-07", {});
     expect(isExplanationCurrent(older, { card: "n:api", rev: "a1", chart: "2026-11-07" })).toBe(true);
     expect(isExplanationCurrent(older, { card: "n:api", rev: "a1", chart: "2026-11-06" })).toBe(false);
+  });
+});
+
+describe("a big chart, in slices", () => {
+  // Ten parts of 2000 files each, every file using the next one in its part: 20,000 files and as many
+  // links, written as draw/build.js writes a chart.
+  const graph = {
+    schema: "chartroom/chart@1",
+    project: { name: "Armada", summary: "A big app." },
+    nodes: Array.from({ length: 10 }, (_, part) => ({ id: `p${part}`, parent: null, label: `Part ${part}`, kind: "feature" })),
+    files: Array.from({ length: 20000 }, (_, index) => ({ p: `p${index % 10}/file-${index}.ts`, n: `p${index % 10}`, d: `File ${index}.` })),
+    routes: [],
+    links: Array.from({ length: 20000 }, (_, index) => ({ a: `f:p${index % 10}/file-${index}.ts`, b: `f:p${(index + 1) % 10}/file-${(index + 1) % 20000}.ts`, w: 1, labels: [] })),
+  };
+  const text = chartText(graph);
+
+  test("reads it giving the turn between slices, into the chart read in one go", async () => {
+    let pauses = 0;
+    const chart = await readChartInSlices(text, async () => (pauses += 1), 0);
+    expect(pauses).toBeGreaterThan(0);
+    const whole = readChart(JSON.stringify(graph));
+    expect([...chart.files.keys()]).toEqual([...whole.files.keys()]);
+    expect(chart.links).toEqual(whole.links);
+  });
+
+  test("works out a level in slices, the same as in one go, and keeps it", async () => {
+    const chart = readChart(text);
+    expect(isLevelReady(chart, "p3")).toBe(false);
+    let pauses = 0;
+    const level = await levelInSlices(chart, "p3", async () => (pauses += 1), 0);
+    expect(pauses).toBeGreaterThan(0);
+    expect(isLevelReady(chart, "p3")).toBe(true);
+    expect(levelOf(chart, "p3")).toBe(level);
+    expect(level).toEqual(levelOf(readChart(JSON.stringify(graph)), "p3"));
+    expect(level.inside).toHaveLength(2000);
   });
 });

@@ -7,24 +7,55 @@
 // repository's top, where its first drawing runs: a .chartroom further up without a chart (a
 // drawing there that failed) does not take the projects below it over. charted <folder>: the
 // folder with a chart. drawing <.chartroom>: whether its pid is a drawer that still runs, so a pid
-// left by a drawer that died, and since taken by another program, is not one.
+// left by a drawer that died, and since taken by another program, is not one. stamp <file>: its
+// size in bytes and when it was last written, as "<bytes>:<seconds>", by GNU's stat or else BSD's.
 const FUNCTIONS = [
   'up() { f=${1%/}; while [ -n "$f" ] && [ "$f" != "$HOME" ]; do if eval "$2"; then printf "%s" "$f"; return 0; fi; f=${f%/*}; done; return 1; };',
   'charted() { up "$1" \'[ -f "$f/.chartroom/chart.json" ]\'; };',
   'nearest() { start=${1%/}; top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); up "$1" \'[ -f "$f/.chartroom/chart.json" ] || { [ -d "$f/.chartroom" ] && { [ "$f" = "$start" ] || [ "$f" = "$top" ]; }; }\'; };',
   'drawing() { p=$(cat "$1/pid" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ps -p "$p" -o command= 2>/dev/null | grep -q "draw/draw.js"; };',
+  'stamp() { stat -c "%s:%Y" "$1" 2>/dev/null || stat -f "%z:%m" "$1"; };',
 ].join(" ");
+
+// A program run through Herdr hands back at most 8 MiB. A chart up to INLINE_BYTES comes with
+// FIND_MAP; a bigger one in parts of PART_MIB MiB, through READ_PART.
+const MIB = 1024 * 1024;
+const PART_MIB = 7;
+export const INLINE_BYTES = PART_MIB * MIB;
 
 // sh -c FIND_MAP find <folder>, in lines: the folder, whether a drawing is "running" or "idle", the
 // drawing's progress (JSON, or nothing), the end of its log when it is not running (or nothing),
-// whether there is a chart ("chartroom" or "none"), then the chart. Exits 3 when there is no
+// whether there is a chart ("chartroom <stamp>" or "none"), then the chart when it is at most
+// INLINE_BYTES. Exits 3 when there is no
 // folder with either. The log's line drops the newline GNU cut ends with (BSD cut adds none), or on
 // Linux every line after it would move down one.
 export const FIND_MAP = `${FUNCTIONS} d=$(nearest "$1") || exit 3; c="$d/.chartroom"; printf "%s\\n" "$d";
 if drawing "$c"; then echo running; else echo idle; fi;
 if [ -f "$c/progress.json" ]; then tr -d "\\n" < "$c/progress.json"; fi; printf "\\n";
 if ! drawing "$c" && [ -f "$c/draw.log" ]; then tail -n 4 "$c/draw.log" | tr "\\n" " " | cut -c 1-400 | tr -d "\\n"; fi; printf "\\n";
-if [ -f "$c/chart.json" ]; then echo chartroom; exec cat "$c/chart.json"; else echo none; fi`;
+if [ -f "$c/chart.json" ]; then s=$(stamp "$c/chart.json"); echo "chartroom $s"; [ "\${s%%:*}" -gt ${INLINE_BYTES} ] || exec cat "$c/chart.json"; else echo none; fi`;
+
+// sh -c READ_PART read <folder> <skip> <count>: the chart's stamp on a line, then <count> MiB of
+// it from <skip> MiB on.
+export const READ_PART = `${FUNCTIONS} f="$1/.chartroom/chart.json"; stamp "$f" && dd if="$f" bs=${MIB} skip="$2" count="$3" 2>/dev/null`;
+
+// A chart too big for FIND_MAP, read a part at a time with `run` (a program and its arguments, to
+// its output): the chart of `stamp`, or null when it was written again while it was read. A chart
+// that big is written in ASCII alone (draw/build.js), so no part ends inside a character; one that
+// is not (written before) comes out shorter than its size, and is refused rather than read again
+// and again.
+export async function chartInParts(run, folder, stamp, size) {
+  const parts = [];
+  for (let skip = 0; skip * MIB < size; skip += PART_MIB) {
+    const out = await run(["sh", "-c", READ_PART, "read", folder, String(skip), String(PART_MIB)]);
+    const newline = out.indexOf("\n");
+    if (out.slice(0, newline) !== stamp) return null;
+    parts.push(out.slice(newline + 1));
+  }
+  const text = parts.join("");
+  if (text.length !== size) throw new Error("the chart is too big to read as it was written: update it, and it is written so it can be");
+  return text;
+}
 
 // sh -c FIND_CHARTS find <folder>...: a line per folder, the folder and a tab, then the folder with
 // its chart or nothing.
@@ -45,7 +76,9 @@ export const STOP_DRAW = `${FUNCTIONS} drawing "$1/.chartroom" || { echo "no dra
 // FIND_MAP's output: where the chart is, the drawing's state, and the chart's text.
 export function mapFrom(stdout) {
   const lines = stdout.split("\n");
-  const [folder, state, progressLine, log, kind] = lines;
+  const [folder, state, progressLine, log, chartLine] = lines;
+  const [kind, stamp = null] = (chartLine || "none").split(" ");
+  const size = stamp ? Number(stamp.split(":")[0]) : 0;
   let progress = null;
   if (progressLine) {
     try {
@@ -54,7 +87,7 @@ export function mapFrom(stdout) {
       console.log(`chartroom: ${folder}/.chartroom/progress.json is not JSON yet: ${error.message}`);
     }
   }
-  return { folder, isDrawing: state === "running", progress, log: (log ?? "").trim(), kind: kind || "none", text: lines.slice(5).join("\n") };
+  return { folder, isDrawing: state === "running", progress, log: (log ?? "").trim(), kind, stamp, size, text: size > INLINE_BYTES ? null : lines.slice(5).join("\n") };
 }
 
 // FIND_CHARTS' lines as a Map from each folder to the folder with its chart, or null.

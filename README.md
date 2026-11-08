@@ -44,6 +44,8 @@ The code is scanned without Claude: imports through TypeScript, Python, Go, PHP,
 
 Everything runs locally, on your own Claude subscription. Claude only gets tools that read: it never changes your code.
 
+Every code file is charted, however large the project.
+
 ## Development
 
 ```sh

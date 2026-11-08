@@ -10,6 +10,25 @@ const OTHER = { id: OTHER_ID, parent: null, label: "Other files", kind: "misc", 
 const baseName = (path) => path.slice(path.lastIndexOf("/") + 1);
 const nameFromPath = (path) => baseName(path).replace(/\.[^.]+$/, "").replace(/[-_.]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
 
+// The chart as .chartroom/chart.json holds it: JSON in ASCII alone, every other character written
+// as \uXXXX, and each part, file, endpoint and link on a line of its own after the rest. The panel
+// reads a big chart in parts by the byte, which must not end inside a character, and parses it a
+// line at a time (mods/chartroom/model.js), so no one slice of its work parses all of it.
+const ascii = (text) => text.replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
+export function chartText(chart) {
+  const lists = Object.entries(chart).filter(([, value]) => Array.isArray(value));
+  if (!lists.length) return ascii(JSON.stringify(chart));
+  const head = JSON.stringify(Object.fromEntries(Object.entries(chart).filter(([, value]) => !Array.isArray(value))));
+  const lines = [`${head.slice(0, -1)},`];
+  lists.forEach(([key, list], index) => {
+    lines.push(`${JSON.stringify(key)}:[`);
+    list.forEach((item, at) => lines.push(`${JSON.stringify(item)}${at < list.length - 1 ? "," : ""}`));
+    lines.push(index < lists.length - 1 ? "]," : "]}");
+  });
+  return ascii(lines.join("\n"));
+}
+
 export function buildChart({ scan, parts, owner, described, generatedAt = new Date().toISOString() }) {
   const unassigned = scan.files.filter((file) => !owner.get(file.path));
   const allParts = unassigned.length ? [...parts.parts, OTHER] : parts.parts;
@@ -27,7 +46,7 @@ export function buildChart({ scan, parts, owner, described, generatedAt = new Da
   const revs = revsOf({ nodes, files, links, hashOf: new Map(scan.files.map((file) => [file.path, file.hash])) });
   return {
     schema: CHART_SCHEMA,
-    meta: { generatedAt, root: scan.root, rootName: scan.name, repos: scan.repos, isCut: scan.isCut, drawnBy: "claude", counts: { files: scan.files.length, loc: scan.files.reduce((sum, file) => sum + file.loc, 0), unassigned: unassigned.length } },
+    meta: { generatedAt, root: scan.root, rootName: scan.name, repos: scan.repos, drawnBy: "claude", counts: { files: scan.files.length, loc: scan.files.reduce((sum, file) => sum + file.loc, 0), unassigned: unassigned.length } },
     project: parts.project,
     nodes: nodes.map((node) => ({ ...node, rev: revs.get(`n:${node.id}`) })),
     files: files.map((file) => ({ ...file, rev: revs.get(`f:${file.p}`) })),

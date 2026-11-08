@@ -2,6 +2,13 @@
 // project's folder, with "/" between folders; a repo is the folder its files sit under ("" for a
 // project that is one repo).
 
+// Adds a value to the list a map keeps under a key, in place: copying the list for each value grows
+// with the square of a big project's size.
+const push = (map, key, value) => {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
+};
+
 const JS_EXTS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "vue", "svelte", "astro"];
 const NODE_BUILTINS = new Set(["assert", "async_hooks", "buffer", "child_process", "cluster", "crypto", "dns", "events", "fs", "http", "http2", "https", "module", "net", "os", "path", "perf_hooks", "process", "querystring", "readline", "stream", "string_decoder", "timers", "tls", "url", "util", "v8", "vm", "worker_threads", "zlib"]);
 // The packages Java, Kotlin and Android come with, which name no outside package.
@@ -63,7 +70,7 @@ export function resolverFor(files, { aliases = [], goModules = [], psr4 = [], cr
   for (const file of files) {
     if (file.lang !== "go" || file.path.endsWith("_test.go")) continue;
     const dir = dirOf(file.path);
-    goDirs.set(dir, [...(goDirs.get(dir) ?? []), file.path]);
+    push(goDirs, dir, file.path);
   }
   const jsFile = (base) => {
     if (paths.has(base)) return base;
@@ -190,7 +197,7 @@ function jvmIndex(files) {
     if (file.lang !== "jvm" || !file.namespace) continue;
     const stem = file.path.slice(file.path.lastIndexOf("/") + 1).replace(/\.\w+$/, "");
     for (const name of [stem, ...file.defs]) if (!names.has(`${file.namespace}.${name}`)) names.set(`${file.namespace}.${name}`, file.path);
-    packages.set(file.namespace, [...(packages.get(file.namespace) ?? []), file.path]);
+    push(packages, file.namespace, file.path);
     roots.add(file.namespace.split(".").slice(0, 3).join("."));
   }
   return { names, packages, roots: [...roots] };
