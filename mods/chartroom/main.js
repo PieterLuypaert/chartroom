@@ -10,7 +10,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
+import { cardIdOn, detailsOf, impactInSlices, impactOn, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
 import { detailsSize, elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
@@ -44,6 +44,8 @@ const WIDE = 900;
 // the lines stay aside while the cards glide to new places (chart.js's GLIDE, and a little more).
 const ENTER_MS = 30;
 const MOVE_MS = 260;
+// How long a word stays in the status bar in place of the keys.
+const NOTE_MS = 2500;
 // Zoom: at most this far out and in, this much a step; fitting the width never goes past 100%, nor
 // below what still reads (the chart scrolls sideways then).
 const MIN_ZOOM = 0.6;
@@ -187,6 +189,10 @@ export default class Chartroom extends View {
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
     // Whether the click the chart hears now was a card's, which it then leaves to the card.
     this.isCardClick = false;
+    // What depends on a card, lit on the chart (i): its source, kept apart from the card picked so it
+    // stays as the levels change, and the walk's result once it is worked out; a count that drops a
+    // walk overtaken by another; and a word in the status bar for a moment.
+    Object.assign(this, { impact: null, impactAsked: 0, impactPlaced: new WeakMap(), statusNote: "", noteCount: 0 });
     // The height of the heading over a wide view's chart, as last measured.
     this.headingHeight = null;
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
@@ -308,7 +314,10 @@ export default class Chartroom extends View {
     if (result.code !== 0) throw new Error(result.stderr.trim() || `looking for the chart ended with ${result.code}`);
     const found = mapFrom(result.stdout);
     // Another project than the one showing: its own level and card, not the last one's.
-    if (this.folder && found.folder !== this.folder) Object.assign(this, { chart: null, text: null, stamp: null, focus: null, selected: null });
+    if (this.folder && found.folder !== this.folder) {
+      Object.assign(this, { chart: null, text: null, stamp: null, focus: null, selected: null, impact: null });
+      this.impactAsked += 1;
+    }
     Object.assign(this, { folder: found.folder, kind: found.kind, progress: found.progress, log: found.log, isDrawing: found.isDrawing, error: "" });
     if (found.kind === "none") Object.assign(this, { chart: null, text: null, stamp: null });
     else if (found.text === null) await this.readInParts(context, place, found, cx);
@@ -547,6 +556,8 @@ export default class Chartroom extends View {
     this.stamp = stamp;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
     this.chartVersion += 1;
+    this.impact = null;
+    this.impactAsked += 1;
     this.layouts = new Map();
     this.plain = new Map();
     this.changed = null;
@@ -956,6 +967,8 @@ export default class Chartroom extends View {
     if (this.selected !== card.id) this.light(cx);
     const isNew = this.selected !== card.id;
     this.selected = card.id;
+    // With the impact on, a card picked by hand becomes its source.
+    if (isNew && this.liveImpact()) this.showImpact(card.id, cx);
     if (isNew) this.explainSoon(cx);
     // A card picked opens the details again, so what it is and its explanation show.
     if (isNew && this.detailsFolded) this.foldDetails(false, cx);
@@ -968,6 +981,74 @@ export default class Chartroom extends View {
     this.pick(card, isOpening, cx);
   }
 
+  // ---- Impact: what depends on a card
+
+  // `i`, or the details' button: the impact of the card picked, on or off.
+  toggleImpact(cx) {
+    if (this.liveImpact()) return this.hideImpact(cx);
+    if (this.selected) return this.showImpact(this.selected, cx);
+    this.noteFor("Pick a card first: i lights what depends on it", cx);
+  }
+
+  // Lights what depends on `ref`. The walk runs in slices in a task, as on a big chart it can take
+  // longer than a render may wait; the chart shows it once it is done.
+  showImpact(ref, cx) {
+    const chart = this.chart;
+    const asked = ++this.impactAsked;
+    this.impact = { chart, source: ref, result: null };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const result = await impactInSlices(chart, ref, {}, pauseOn(cx));
+      if (asked !== this.impactAsked || chart !== this.chart) return;
+      this.impact = { chart, source: ref, result };
+      this.light(cx);
+      cx.notify();
+    });
+  }
+
+  hideImpact(cx) {
+    this.impact = null;
+    this.impactAsked += 1;
+    this.light(cx);
+    cx.notify();
+  }
+
+  // The impact, while it is the chart's shown: a project shown again from what the panel kept keeps
+  // its own chart, not the impact of the one shown before.
+  liveImpact() {
+    return this.impact?.chart === this.chart ? this.impact : null;
+  }
+
+  // The impact placed on a level, worked out once per walk and level and kept: a render asks for it
+  // on every frame.
+  impactHere(level) {
+    const result = this.liveImpact()?.result;
+    if (!result) return null;
+    if (!this.impactPlaced.has(result)) this.impactPlaced.set(result, new WeakMap());
+    const placed = this.impactPlaced.get(result);
+    if (!placed.has(level)) placed.set(level, impactOn(this.chart, level, result));
+    return placed.get(level);
+  }
+
+  // What the details of `card` show of the impact: its button, and while the impact is this card's,
+  // how much depends on it (null until the walk is done).
+  impactAsk(card) {
+    const isOn = this.liveImpact()?.source === card.id;
+    return { isOn, counts: isOn ? this.impact.result?.counts ?? null : null, onToggle: (cx) => (isOn ? this.hideImpact(cx) : this.showImpact(card.id, cx)) };
+  }
+
+  // A word in the status bar for a moment, in place of the keys.
+  noteFor(words, cx) {
+    const count = ++this.noteCount;
+    this.statusNote = words;
+    cx.notify();
+    cx.timer.after(NOTE_MS, (cx) => {
+      if (this.noteCount !== count) return;
+      this.statusNote = "";
+      cx.notify();
+    });
+  }
+
   // No card picked: the level's own details and answers, and its lines fading back.
   unpick(cx) {
     if (this.selected === null) return;
@@ -976,14 +1057,16 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  // A click on the chart around the cards puts the card picked down. A card's click reaches the chart
-  // too, after the card heard it, and the end of a drag is no click.
+  // A click on the chart around the cards puts the card picked down, and turns the impact off. A card's
+  // click reaches the chart too, after the card heard it, and the end of a drag is no click.
   clickedChart(cx) {
     if (this.isCardClick) {
       this.isCardClick = false;
       return;
     }
-    if (!this.didDrag) this.unpick(cx);
+    if (this.didDrag) return;
+    if (this.liveImpact()) this.hideImpact(cx);
+    this.unpick(cx);
   }
 
   // Shows another level, and with it the card `picked` (or none), then does `after`. A level worked
@@ -1265,6 +1348,8 @@ export default class Chartroom extends View {
     }
     else if (view && k === "enter") this.open(this.cardOf(view, this.selected), cx);
     else if (view && k === "backspace") this.up(cx);
+    else if (view && k === "i") this.toggleImpact(cx);
+    else if (k === "escape" && this.liveImpact()) this.hideImpact(cx);
     else if (k === "escape") {
       if (!view || !this.up(cx)) {
         if (isTab()) return false;
@@ -1320,7 +1405,7 @@ export default class Chartroom extends View {
       .child(this.body(t, view))
       // As the status bar beside it.
       .child(h_flex().flex_none().h(28).px(14).items_center().border_t(1).border_color(t.border).text_size(11.8).text_color(t.dim)
-        .child(div().truncate().child(this.hints(view))));
+        .child(div().truncate().child(this.statusNote || this.hints(view))));
   }
 
   body(t, view) {
@@ -1469,7 +1554,7 @@ export default class Chartroom extends View {
     const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
     const explain = { record: this.explanation?.card === this.selected ? this.explanation : null, onExplain: (cx) => this.explainSoon(cx, true) };
-    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain });
+    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain, impact: details ? this.impactAsk(details.card) : null });
     const body = isWide ? h_flex() : v_flex();
     const isDragging = Boolean(this.drag && this.didDrag);
     // The chart is a map to move around: dragged anywhere, a card too, or moved with the wheel.
@@ -1568,7 +1653,7 @@ export default class Chartroom extends View {
     const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
     return v_flex()
       .when(Boolean(view.note), (el) => el.child(div().px(16).pt(8).text_size(11.5).text_color(t.dim).child(view.note)))
-      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), isInstant: this.isWheeling, onPick: (card, isOpening, cx) => this.pickOnChart(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
+      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), impact: this.impactHere(view.level), isInstant: this.isWheeling, onPick: (card, isOpening, cx) => this.pickOnChart(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
   }
 
   // Over the chart in a wide view: what this level is, what it is called, and what it does.
@@ -1648,6 +1733,8 @@ export default class Chartroom extends View {
     if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", ...close].filter(Boolean).join("  ·  ");
     const card = this.cardOf(view, this.selected);
     const keys = ["↑↓ pick", "/ search"];
+    if (this.liveImpact()) keys.push("i impact off");
+    else if (card) keys.push("i impact");
     if (card?.isOpenable) keys.push("↵ inside");
     if (view.level.focus !== null) keys.push("⌫ up");
     if (view.laid?.lines) keys.push("−+ zoom");

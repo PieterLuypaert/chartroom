@@ -101,7 +101,37 @@ function* indexSteps(graph, clock) {
   const name = graph.project?.name || graph.meta?.rootName || "This app";
   const chart = { name, summary: graph.project?.summary ?? "", meta: graph.meta ?? {}, nodes, children, files, filesOf, routes, routesOf, links: graph.links ?? [] };
   chart.linksUnder = yield* linksUnderSteps(chart, clock);
+  Object.assign(chart, yield* endsSteps(chart, clock));
   return chart;
+}
+
+// Which way each link goes, end by end: for every file or node, the links that end in it (`users`:
+// who uses it) and those that start from it (`used`: what it uses), each other end with the link
+// that joins them. The impact walk goes over these.
+function* endsSteps(chart, clock) {
+  const users = new Map();
+  const used = new Map();
+  for (const link of chart.links) {
+    const a = endOf(chart, link.a);
+    const b = endOf(chart, link.b);
+    if (a && b && a !== b) {
+      push(users, b, { ref: a, via: link });
+      push(used, a, { ref: b, via: link });
+    }
+    if (clock.isDue()) {
+      yield;
+      clock.restart();
+    }
+  }
+  return { users, used };
+}
+
+// A link's end as the impact walk knows it: a file ("f:<path>"), an endpoint taken to its file, or
+// a node ("n:<id>", such as an outside service). Null for one the chart does not have.
+function endOf(chart, ref) {
+  const spot = spotOf(chart, ref);
+  if (!spot) return null;
+  return spot.file ? `f:${spot.file}` : `n:${spot.node}`;
 }
 
 // The links a part's level can show: those with an end in the part or in a part inside it, in the
@@ -310,6 +340,114 @@ export function detailsOf(level, id) {
   const uses = level.lines.filter((line) => line.from === id).map((line) => ({ card: cards.get(line.to), line }));
   const usedBy = level.lines.filter((line) => line.to === id).map((line) => ({ card: cards.get(line.from), line }));
   return { card, uses, usedBy };
+}
+
+// ---- Impact: what depends on a card, any number of steps away
+
+// Everything that depends on `ref` (a file, a part or an outside service), or with `direction:
+// "uses"` everything it relies on: each file or node reached, with its fewest steps away, the end it
+// was reached from (one step nearer the source) and the link between them. The walk goes ring by
+// ring, so each is reached by a shortest way, and once, so links in a circle end it. The source
+// (for a part, its files and those of the parts inside it) is not among those reached.
+//
+// What is reached is also gathered by the part each file is in (a node by itself), as a file shows
+// on any level as its part's card, except inside that part: placing an impact on a level then goes
+// through the parts, not through every file reached.
+export const impactOf = (chart, ref, options = {}) => straight(impactSteps(chart, ref, options));
+export const impactInSlices = (chart, ref, options, pause, sliceMs) => inSlices(impactSteps(chart, ref, options, sliceMs), pause);
+
+function* impactSteps(chart, ref, { direction = "usedBy" } = {}, sliceMs) {
+  const clock = sliceClock(sliceMs);
+  const next = direction === "uses" ? chart.used : chart.users;
+  const sources = sourcesOf(chart, ref);
+  const affected = new Map();
+  const groups = new Map();
+  let ring = [...sources];
+  for (let steps = 1; ring.length; steps += 1) {
+    const reached = [];
+    for (const at of ring) {
+      for (const one of next.get(at) ?? []) {
+        if (sources.has(one.ref) || affected.has(one.ref)) continue;
+        affected.set(one.ref, { steps, from: at, via: one.via });
+        reached.push(one.ref);
+        const part = partOfEnd(chart, one.ref);
+        const group = groups.get(part) ?? { steps, files: 0, refs: [] };
+        if (one.ref.startsWith("f:")) group.files += 1;
+        group.refs.push([one.ref, steps]);
+        groups.set(part, group);
+      }
+      if (clock.isDue()) {
+        yield;
+        clock.restart();
+      }
+    }
+    ring = reached;
+  }
+  const sourceGroups = new Map();
+  for (const end of sources) push(sourceGroups, partOfEnd(chart, end), end);
+  // How many parts (each at the deepest, a node as itself) and files are affected in all.
+  const counts = { parts: groups.size, files: [...groups.values()].reduce((sum, group) => sum + group.files, 0) };
+  return { source: ref, direction, sources, affected, groups, sourceGroups, counts };
+}
+
+// The part a file is in, or a node's own id.
+const partOfEnd = (chart, end) => (end.startsWith("f:") ? chart.files.get(end.slice(2)).n : end.slice(2));
+
+// What the walk starts from: a file; a node, and when it is a part, its files and those of every
+// part inside it.
+function sourcesOf(chart, ref) {
+  const sources = new Set();
+  const end = endOf(chart, ref);
+  if (!end) return sources;
+  sources.add(end);
+  if (end.startsWith("n:")) {
+    const parts = new Set([end.slice(2)]);
+    for (const part of parts) {
+      for (const path of chart.filesOf.get(part) ?? []) sources.add(`f:${path}`);
+      for (const child of chart.children.get(part) ?? []) parts.add(child);
+    }
+  }
+  return sources;
+}
+
+// An impact on a level: each card on it with something affected, at the fewest steps of what in it
+// is affected and with how many of its files are; the cards that hold the source; the lines from an
+// affected card towards the source (or, for "uses", away from it), by their keys; what is affected
+// with no card on the level, by the part it is in; and how many parts (each at the deepest) and
+// files are affected in all.
+export function impactOn(chart, level, impact) {
+  const cardOf = cardsOn(chart, level.focus);
+  const shown = new Set([...level.inside, ...level.outside].map((card) => card.id));
+  const onLevel = (ref) => {
+    const card = cardOf(ref);
+    return card && shown.has(card.id) ? card.id : null;
+  };
+  // A part shows as its card; inside the part itself, its files show one by one.
+  const ends = (part, refs) => (part === level.focus ? refs : [`n:${part}`]);
+  const sources = new Set();
+  for (const [part, refs] of impact.sourceGroups) for (const ref of ends(part, refs)) if (onLevel(ref)) sources.add(onLevel(ref));
+  const cards = new Map();
+  const elsewhere = new Map();
+  const place = (id, key, steps, count) => {
+    if (id && sources.has(id)) return;
+    const [into, at] = id ? [cards, id] : [elsewhere, key];
+    const one = into.get(at) ?? (id ? { steps, files: 0 } : { part: key, steps, files: 0 });
+    one.steps = Math.min(one.steps, steps);
+    one.files += count;
+    into.set(at, one);
+  };
+  for (const [part, group] of impact.groups) {
+    if (part === level.focus) for (const [ref, steps] of group.refs) place(onLevel(ref), part, steps, ref.startsWith("f:") ? 1 : 0);
+    else place(onLevel(`n:${part}`), part, group.steps, group.files);
+  }
+  const stepsOf = (id) => (sources.has(id) ? 0 : cards.get(id)?.steps ?? null);
+  const isUsedBy = impact.direction !== "uses";
+  const lines = new Set(level.lines.filter((line) => {
+    const [from, to] = [stepsOf(line.from), stepsOf(line.to)];
+    return from !== null && to !== null && (isUsedBy ? from > to : to > from);
+  }).map((line) => line.key));
+  const away = [...elsewhere.values()].sort((a, b) => a.steps - b.steps || a.part.localeCompare(b.part));
+  return { cards, sources, lines, elsewhere: away, counts: impact.counts };
 }
 
 // The card on the level of `focus` that a part or file anywhere in the chart shows as ("n:<id>" or

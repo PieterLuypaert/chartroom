@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chartText } from "../draw/build.js";
-import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChart, readChartInSlices, trailOf } from "../mods/chartroom/model.js";
+import { cardIdOn, detailsOf, impactInSlices, impactOf, impactOn, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChart, readChartInSlices, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -253,5 +253,110 @@ describe("a big chart, in slices", () => {
     expect(levelOf(chart, "p3")).toBe(level);
     expect(level).toEqual(levelOf(readChart(JSON.stringify(graph)), "p3"));
     expect(level.inside).toHaveLength(2000);
+  });
+});
+
+// The tide tables' links, which way each goes (a uses b):
+//   home.tsx, port.tsx  -import->  client.ts  -http->  tides.ts, ports.ts  -import->  db.ts  -> the db
+//   index.ts  -import->  tides.ts, ports.ts;  fetch.py  -http GET /tides/:port->  tides.ts;  fetch.py -import-> notify.py -> mail
+describe("impactOf", () => {
+  const steps = (impact) => Object.fromEntries([...impact.affected].map(([ref, one]) => [ref, one.steps]));
+  const chain = (impact, ref) => {
+    const out = [ref];
+    for (let at = impact.affected.get(ref)?.from; at; at = impact.affected.get(at)?.from) out.push(at);
+    return out;
+  };
+
+  test("finds the files that use a file, any number of steps away, each at its fewest steps", () => {
+    const impact = impactOf(chart, "f:api/src/store/db.ts");
+    expect(steps(impact)).toEqual({
+      "f:api/src/routes/tides.ts": 1,
+      "f:api/src/routes/ports.ts": 1,
+      "f:api/src/index.ts": 2,
+      "f:site/src/kit/client.ts": 2,
+      "f:jobs/fetch.py": 2,
+      "f:site/src/pages/home.tsx": 3,
+      "f:site/src/pages/port.tsx": 3,
+    });
+  });
+
+  test("keeps the file each was reached from, so the shortest chain back to the source can be told", () => {
+    const impact = impactOf(chart, "f:api/src/store/db.ts");
+    const back = chain(impact, "f:site/src/pages/home.tsx");
+    expect(back).toHaveLength(4);
+    expect(back[1]).toBe("f:site/src/kit/client.ts");
+    expect(back.at(-1)).toBe("f:api/src/store/db.ts");
+  });
+
+  test("counts a request answered by an endpoint, with the link that carries it", () => {
+    const impact = impactOf(chart, "f:api/src/routes/tides.ts");
+    expect(steps(impact)).toMatchObject({ "f:site/src/kit/client.ts": 1, "f:api/src/index.ts": 1, "f:jobs/fetch.py": 1, "f:site/src/pages/home.tsx": 2 });
+    expect(impact.affected.get("f:jobs/fetch.py").via.labels).toEqual(["GET /tides/:port"]);
+    expect(impact.affected.get("f:site/src/kit/client.ts").via.k).toBe("http");
+  });
+
+  test("takes a part as all of its files, and does not count them", () => {
+    const impact = impactOf(chart, "n:api");
+    expect([...impact.sources].sort()).toEqual(["f:api/src/index.ts", "f:api/src/routes/ports.ts", "f:api/src/routes/tides.ts", "f:api/src/store/db.ts", "n:api"]);
+    expect(steps(impact)).toEqual({ "f:site/src/kit/client.ts": 1, "f:jobs/fetch.py": 1, "f:site/src/pages/home.tsx": 2, "f:site/src/pages/port.tsx": 2 });
+  });
+
+  test("takes an outside service as what uses it, then what depends on that", () => {
+    expect(steps(impactOf(chart, "n:db"))).toMatchObject({ "f:api/src/store/db.ts": 1, "f:api/src/routes/tides.ts": 2, "f:site/src/pages/home.tsx": 4 });
+  });
+
+  test("walks forwards to what the source relies on, with uses", () => {
+    expect(steps(impactOf(chart, "f:site/src/pages/home.tsx", { direction: "uses" }))).toEqual({
+      "f:site/src/kit/client.ts": 1,
+      "f:api/src/routes/tides.ts": 2,
+      "f:api/src/routes/ports.ts": 2,
+      "f:api/src/store/db.ts": 3,
+      "n:db": 4,
+    });
+  });
+
+  test("ends on links that go round in a circle, each file at its fewest steps", () => {
+    const round = readChart(JSON.stringify({
+      schema: "chartroom/chart@1",
+      nodes: [{ id: "p", parent: null, label: "P", kind: "feature" }],
+      files: ["a", "b", "c"].map((name) => ({ p: `${name}.ts`, n: "p" })),
+      links: [["a", "b"], ["b", "c"], ["c", "a"]].map(([a, b]) => ({ a: `f:${a}.ts`, b: `f:${b}.ts`, k: "import", w: 1 })),
+    }));
+    expect(steps(impactOf(round, "f:a.ts"))).toEqual({ "f:c.ts": 1, "f:b.ts": 2 });
+  });
+
+  test("works the same in slices, giving the turn between them", async () => {
+    let pauses = 0;
+    const impact = await impactInSlices(chart, "f:api/src/store/db.ts", {}, async () => (pauses += 1), 0);
+    expect(pauses).toBeGreaterThan(0);
+    expect(steps(impact)).toEqual(steps(impactOf(chart, "f:api/src/store/db.ts")));
+  });
+});
+
+describe("impactOn", () => {
+  test("shows each affected card on a level at its fewest steps, with its files, and the source's cards apart", () => {
+    const on = impactOn(chart, levelOf(chart, "site"), impactOf(chart, "f:site/src/kit/client.ts"));
+    expect([...on.sources]).toEqual(["n:site.kit"]);
+    expect(Object.fromEntries(on.cards)).toEqual({ "n:site.pages": { steps: 1, files: 2 } });
+    expect(on.counts).toEqual({ parts: 1, files: 2 });
+  });
+
+  test("lights the lines from each affected card towards the source", () => {
+    const on = impactOn(chart, levelOf(chart, null), impactOf(chart, "f:api/src/store/db.ts"));
+    expect([...on.sources]).toEqual(["n:api"]);
+    expect(Object.fromEntries(on.cards)).toEqual({ "n:site": { steps: 2, files: 3 }, "n:jobs": { steps: 2, files: 1 } });
+    expect([...on.lines].sort()).toEqual(["n:jobs>n:api", "n:site>n:api"]);
+    expect(on.counts).toEqual({ parts: 5, files: 7 });
+  });
+
+  test("keeps the affected files with no card on the level apart, by the part they are in", () => {
+    const level = levelOf(chart, "site.pages");
+    const on = impactOn(chart, level, impactOf(chart, "f:api/src/store/db.ts"));
+    expect(Object.fromEntries(on.cards)).toEqual({ "f:site/src/pages/home.tsx": { steps: 3, files: 1 }, "f:site/src/pages/port.tsx": { steps: 3, files: 1 }, "n:site.kit": { steps: 2, files: 1 } });
+    expect(on.elsewhere).toEqual([
+      { part: "api.routes", steps: 1, files: 2 },
+      { part: "api", steps: 2, files: 1 },
+      { part: "jobs", steps: 2, files: 1 },
+    ]);
   });
 });
