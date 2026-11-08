@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { asksFor, asksFrom, CHANGED, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_MAP, mapFrom, START_ASK, START_DRAW } from "../mods/chartroom/find.js";
 import { cardIdOn, isExplanationCurrent, levelOf, readChart } from "../mods/chartroom/model.js";
 import { elkLevel, fromElk } from "../mods/chartroom/layout.js";
-import { minimapOf } from "../mods/chartroom/minimap.js";
 
 // The whole way the panel takes, end to end: the same shell snippets it runs, the real draw/
 // scripts in the background, and a fake claude in place of the real one. A project in a home of
@@ -96,9 +95,6 @@ describe("a project drawn, explored, asked about and updated", () => {
     }
     const laid = placed("top:RIGHT", top, "RIGHT");
     expect(laid.bands.map((band) => band.label)).toContain("Parts");
-    const minimap = minimapOf(laid.cards, { view: { width: 600, height: 400 }, pan: { x: 0, y: 0 } });
-    expect(minimap.cards.length).toBe(laid.cards.length);
-    expect(minimap.viewport.w).toBeGreaterThan(0);
   });
 
   test("Ask: a question about a card and one about the level each stay with what they were asked about", async () => {

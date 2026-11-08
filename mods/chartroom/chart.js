@@ -230,23 +230,6 @@ function plainCard(t, box, isSelected, onPick, onHover) {
     .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(subline(box)));
 }
 
-// The level small in the chart's bottom-left corner (minimap.js places it): each card a block, the
-// cards inside the part stronger than those outside it, the picked card and those an answer is about
-// in the accent, and a frame round the part in view. A press on it moves the view there.
-export function minimapView({ t, map, selected, lighted = new Set(), isDragging, onPress, onHover }) {
-  const ground = (card) => (card.id === selected || lighted.has(card.id) ? t.accent : card.band === 1 ? t.dim : t.border);
-  const { viewport } = map;
-  return div().id("minimap").absolute().left(12).bottom(12).w(map.width).h(map.height).overflow_hidden()
-    .rounded(6).border_1().border_color(t.border).bg(t.background)
-    .when(isDragging, (el) => el.cursor_grabbing())
-    .when(!isDragging, (el) => el.cursor_pointer())
-    .on_mouse_down("left", (e, cx) => onPress(e, cx))
-    .on_hover((isHovered, cx) => onHover(isHovered, cx))
-    .children(map.cards.map((card) => div().absolute().left(card.x).top(card.y).w(card.w).h(card.h).rounded(1.5).bg(ground(card))))
-    .when(viewport.w > 0 && viewport.h > 0, (el) => el.child(div().absolute().left(viewport.x).top(viewport.y).w(viewport.w).h(viewport.h)
-      .rounded(3).border_1().border_color(t.accent).bg(thin(t.accent, "18"))));
-}
-
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
 // what was asked about that card (or level), and at the foot a field to ask the person's own Claude
 // about it.
