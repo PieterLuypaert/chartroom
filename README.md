@@ -34,6 +34,15 @@ Go inside a part to see its files:
 
 Needs the Herdr app, [Bun](https://bun.sh), `git`, `jq` and the Claude Code CLI, logged in.
 
+**With your agent.** Paste this into Claude Code, or another agent on your computer:
+
+```text
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/PieterLuypaert/chartroom
+It draws with the scripts beside it in the repo, so clone the whole repo to a folder that stays and run its ./install.sh instead of copying the mod folder.
+```
+
+**By hand.**
+
 ```sh
 git clone https://github.com/PieterLuypaert/chartroom.git
 cd chartroom
