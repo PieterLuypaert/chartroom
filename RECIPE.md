@@ -69,7 +69,9 @@ empty level: "Nothing on this level."
 
 **Minimap**: in the chart's bottom-left corner (left 12, bottom 12), at most 180×120 and at least 36 a
 side, 6px radius, a `t.border` frame on `t.background`. Cards are blocks: `t.accent` when picked or lit,
-`t.dim` inside the level, `t.border` outside it. The part in view: a `t.accent` frame on accent at alpha `18`.
+`t.dim` inside the level, `t.border` outside it. What is out of view is shaded: `t.background` at 55% opacity
+over it (an opacity, so any form of theme color works). The part in view keeps its colors and a 1px
+`t.accent` edge at 40% opacity, 3px radius.
 
 **Details.** With no card picked: the level's name, a pill ("6 parts · 4 files"), its summary, and "Pick a
 card to see what it uses and what uses it. Double-click one with › to go inside." With a card picked: its
@@ -146,8 +148,11 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   pan. `−`/`+` zoom by 1.2×; `0` or a click on the % fits the width (at most 100%, at least 75%, so a wide
   chart then scrolls sideways). On a resize, zoom or fold, cards glide in 220ms and the lines hide until
   they arrive; wheel zoom follows at once.
-- **Minimap.** Only with ELK's layout and a chart area of at least 360×260. A click moves the view's middle
-  there; dragging the frame drags the view without a jump. While the pointer is on it, no card lights.
+- **Minimap.** Only with ELK's layout, a chart area of at least 360×260, and part of the level out of view:
+  with 90% or more of it in view both across and down (measured on the cards, not the room round them),
+  it is not drawn, and comes back once a zoom or a bigger level leaves more out. A click moves the view's
+  middle there; dragging the part in view drags the view without a jump, and the minimap stays while it is
+  dragged. While the pointer is on it, no card lights.
 - **Search.** `/` or a click on the header's search box opens the search. The box becomes its field, where it
   was (`t.accent` frame, 12px, placeholder "Search the chart"), and under it a dropdown drops over the chart,
   which stays: 4px below the box, as wide as the panel allows up to 420px (at least 220px), 8px radius,
@@ -206,9 +211,10 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
   bands), `minimapView`, `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`,
   `Input`), `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown), `dropdownFrame`
-  (the frame both dropdowns share). `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`.
-  `drawing.js`: the first-drawing card, update strip, changed strip, `endedWords`. `projects.js`: the
-  picker's rows and dropdown, its projects grouped by `pickerItems` (in `model.js`, beside `projectsOf`).
+  (the frame both dropdowns share). `minimap.js`: `minimapOf`, `panAt`, `grabOf`, `hasRoomFor`,
+  `isWorthShowing`, `shadeOf`. `drawing.js`: the first-drawing card, update strip, changed strip,
+  `endedWords`. `projects.js`: the picker's rows and dropdown, its projects grouped by `pickerItems` (in
+  `model.js`, beside `projectsOf`).
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
   `modelLabel`; draw/ask.js
   reads it too. `search.js`: `searchIndexOf(chart)` (every part, outside service, file and endpoint with its level and
@@ -312,8 +318,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `.chartroom/chart.json` appears with `"schema":"chartroom/chart@1"` next to a `.gitignore` of `*`.
 - The top level shows "Used by", "Parts" and "Uses" bands joined by right-angled lines. Double-clicking a
   card with a chevron goes inside; the trail and `⌫` go back up.
-- The wheel zooms around the pointer and the % label follows; `0` fits. The minimap sits in the bottom-left
-  corner, and dragging its frame moves the view without a jump.
+- The wheel zooms around the pointer and the % label follows; `0` fits, and with the whole level in view the
+  minimap goes. Zoomed in, it sits in the bottom-left corner with what is out of view shaded, and dragging
+  the part in view moves the view without a jump.
 - `e` on a card shows "Explained by your Claude", then the text. Picking another card and coming back shows
   it again without asking, and so does an update that changed a file in another part.
 - A question asked with a card picked is listed only on that card; with nothing picked, only that level's
