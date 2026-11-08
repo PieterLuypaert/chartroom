@@ -44,22 +44,7 @@ cd chartroom
 
 This links the mod, binds its keys and adds a **Chartroom** button to your layout's tab bar. Herdr replaces its built-in layouts on every start, so use one of your own: `install.sh` tells you how. After pulling, run `./install.sh` again and restart Herdr.
 
-## Usage
-
-Click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
-
-| Keys | What they do |
-|---|---|
-| `↑` `↓` | Pick a card |
-| `↵` · `⌫` | Go inside · go up |
-| `/` | Find |
-| `i` | Impact of the card picked |
-| `e` · `a` · `m` | Explain · ask · the model to ask on |
-| `d` | Details on or off |
-| `−` `+` · `0` | Zoom · fit |
-| `u` · `⇧U` | Update · draw again from scratch |
-| `p` | Pick a project |
-| `f` · `esc` | Full size · back up, or close |
+Then click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
 
 ## How it works
 
