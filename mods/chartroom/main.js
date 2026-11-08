@@ -1057,14 +1057,16 @@ export default class Chartroom extends View {
     cx.notify();
   }
 
-  // A click on the chart around the cards puts the card picked down. A card's click reaches the chart
-  // too, after the card heard it, and the end of a drag is no click.
+  // A click on the chart around the cards puts the card picked down, and turns the impact off. A card's
+  // click reaches the chart too, after the card heard it, and the end of a drag is no click.
   clickedChart(cx) {
     if (this.isCardClick) {
       this.isCardClick = false;
       return;
     }
-    if (!this.didDrag) this.unpick(cx);
+    if (this.didDrag) return;
+    if (this.liveImpact()) this.hideImpact(cx);
+    this.unpick(cx);
   }
 
   // Shows another level, and with it the card `picked` (or none), then does `after`. A level worked
