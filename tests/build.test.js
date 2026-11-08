@@ -51,6 +51,28 @@ describe("buildChart's rev", () => {
   });
 });
 
+describe("buildChart's links to outside services", () => {
+  const file = (path, programs) => ({ path, repo: "", lang: "js", loc: 10, hash: "a1", doc: "", packages: [], hosts: [], programs });
+  const built = (outside) => buildChart({
+    scan: { root: "/code/shop", name: "shop", repos: [], files: [file("api/index.ts", ["git", "docker"]), file("web/page.ts", [])], routes: [], links: [] },
+    parts: { ...PARTS, outside },
+    owner: OWNER,
+    described: { files: {}, endpoints: {} },
+  });
+
+  test("links a file to the outside service that names a program it runs", () => {
+    const chart = built([{ id: "git", label: "Git", summary: "History.", packages: [], hosts: [], programs: ["git"] }]);
+    expect(chart.links.filter((link) => link.b === "n:git")).toEqual([{ a: "f:api/index.ts", b: "n:git", k: "run", w: 1, labels: ["git"] }]);
+    expect(chart.nodes.find((node) => node.id === "git").programs).toEqual(["git"]);
+  });
+
+  test("takes an outside service from an earlier chart, named before programs were read, with none", () => {
+    const chart = built([{ id: "stripe", label: "Stripe", summary: "Payments.", packages: ["stripe"], hosts: [] }]);
+    expect(chart.links.filter((link) => link.b === "n:stripe")).toEqual([]);
+    expect(chart.nodes.find((node) => node.id === "stripe").programs).toEqual([]);
+  });
+});
+
 describe("chartText", () => {
   test("writes the chart in ASCII alone, so a part read on its own never ends inside a character", () => {
     const chart = { schema: "chartroom/chart@1", project: { name: "Café ☕", summary: "Orders › Pay — 🧾 receipts" }, nodes: [{ id: "pay", label: "Pay ☕" }] };

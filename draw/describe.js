@@ -74,6 +74,7 @@ export function digestOf(file, { uses, usedBy, routes, head }) {
   if (file.defs.length) lines.push(`  defines: ${upTo(file.defs, MAX_NAMES, ", ")}`);
   if (file.tests?.length) lines.push(`  tests: ${upTo(file.tests.map((title) => title.slice(0, MAX_TITLE)), MAX_NAMES, "; ")}`);
   if (uses.length) lines.push(`  uses: ${[...new Set(uses.map(baseName))].slice(0, 10).join(", ")}`);
+  if (file.programs?.length) lines.push(`  runs: ${file.programs.join(", ")}`);
   if (usedBy) lines.push(`  used by ${usedBy} file${usedBy === 1 ? "" : "s"}`);
   for (const route of routes) lines.push(`  ENDPOINT ${routeKey(route)}`);
   if (head.length) lines.push("  starts with:", ...head.map((line) => `    ${line}`));

@@ -12,7 +12,7 @@ const fakeClaude = join(work, "claude");
 const files = {
   "web/src/page.tsx": 'import { tidesOf } from "./client";\nexport default function Page() { return tidesOf("brest"); }\n',
   "web/src/client.ts": "export const tidesOf = (port: string) => fetch(`/api/tides/${port}`);\n",
-  "api/src/server.ts": 'import Stripe from "stripe";\nimport { tides } from "./tides";\napp.get("/api/tides/:port", (req, res) => res.json(tides(req.params.port)));\n',
+  "api/src/server.ts": 'import Stripe from "stripe";\nimport { tides } from "./tides";\nconst version = Bun.spawnSync(["git", "rev-parse", "HEAD"]);\napp.get("/api/tides/:port", (req, res) => res.json(tides(req.params.port)));\n',
   "api/src/tides.ts": "/** The tides of one port. */\nexport function tides(port: string) { return []; }\n",
 };
 
@@ -41,11 +41,12 @@ beforeAll(() => {
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 describe("draw.js", () => {
-  test("draws a chart of the parts Claude named, linked by imports, requests and packages", () => {
+  test("draws a chart of the parts Claude named, linked by imports, requests, packages and programs run", () => {
     expect(draw()).toMatchObject({ code: 0 });
     const level = levelOf(chart(), null);
-    expect(level.inside.map((card) => card.label)).toEqual(["The api", "The web", "Stripe"]);
-    expect(level.lines.map((line) => `${line.from} > ${line.to}`).sort()).toEqual(["n:api > n:stripe", "n:web > n:api"]);
+    expect(level.inside.map((card) => card.label)).toEqual(["The api", "The web", "Stripe", "Git"]);
+    expect(level.lines.map((line) => `${line.from} > ${line.to}`).sort()).toEqual(["n:api > n:git", "n:api > n:stripe", "n:web > n:api"]);
+    expect(level.lines.find((line) => line.to === "n:git").labels).toEqual(["git"]);
     expect(level.lines.find((line) => line.from === "n:web").labels).toEqual(["GET /api/tides/:port"]);
   });
 

@@ -22,7 +22,7 @@ export const PARTS_SCHEMA = {
     },
     outside: {
       type: "array",
-      items: { type: "object", required: ["id", "label", "summary", "packages", "hosts"], properties: { id: text, label: text, summary: text, packages: texts, hosts: texts } },
+      items: { type: "object", required: ["id", "label", "summary", "packages", "hosts", "programs"], properties: { id: text, label: text, summary: text, packages: texts, hosts: texts, programs: texts } },
     },
     links: {
       type: "array",
@@ -32,11 +32,12 @@ export const PARTS_SCHEMA = {
 };
 
 // What Claude is asked: the project's folders with how much code is in each, its endpoints, the
-// packages and outside addresses its code uses, and what a good answer looks like. With the parts
+// packages, outside addresses and programs its code uses, and what a good answer looks like. With the parts
 // of an earlier chart, it is asked to keep them where they still fit.
 export function partsPrompt(scan, earlier = null) {
   const packages = countBy(scan.files.flatMap((file) => file.packages));
   const hosts = countBy(scan.files.flatMap((file) => file.hosts));
+  const programs = countBy(scan.files.flatMap((file) => file.programs ?? []));
   const endpoints = scan.routes.slice(0, MAX_ENDPOINTS).map((route) => `${route.m} ${route.p}  (${route.file})`);
   return [
     `You are mapping the code in this folder (${scan.name}) so its owner can see how the app fits together. Read what you need (README files, entry points, configuration) with your tools, then answer in the JSON shape asked for.`,
@@ -46,7 +47,7 @@ export function partsPrompt(scan, earlier = null) {
     "What to give:",
     "- project: the app's name as its people would say it, and two or three sentences on what it does and for whom.",
     "- parts: the main parts of the app, 3 to 9 at the top (parent null). Split a big part (more than about 25 files) into 2 to 8 parts inside it (parent: its id), and those again when still big, three levels at most. Each part's id is short, lowercase, and a child's starts with its parent's (\"api\", \"api.billing\"). kind is one of: ui (an app or site people use), service (a server), worker (background jobs), feature, library (shared code), data (storage and records), config (setup), test, misc. paths are glob patterns relative to this folder (\"apps/web/src/**\", \"api/src/routes/*.ts\") that together cover every file listed below; a file goes to the deepest part one of whose patterns matches it.",
-    "- outside: the outside services the code really talks to (payments, email, databases, storage, other companies' APIs), each with the packages or hosts below that show it.",
+    "- outside: the outside services and tools the code really talks to or runs (payments, email, databases, storage, other companies' APIs, programs such as git or docker), each with the packages, hosts or programs below that show it.",
     "- links: only connections the import and request lists cannot show (a queue, a webhook, a schedule, one app calling another by a configured address), from one part or outside service id to another, with a few words on what goes along it.",
     ...(earlier ? ["", "The chart had these parts before. Keep their ids, names and patterns where they still fit, and change only what the code no longer matches:", JSON.stringify(earlier.parts.map(({ id, parent, label, paths }) => ({ id, parent, label, paths })))] : []),
     "",
@@ -61,6 +62,7 @@ export function partsPrompt(scan, earlier = null) {
     "",
     `Packages the code imports, most used first: ${packages.slice(0, 50).map(([name, count]) => `${name} (${count})`).join(", ") || "(none)"}`,
     `Outside addresses the code calls: ${hosts.map(([name]) => name).join(", ") || "(none found)"}`,
+    `Programs the code runs, with how many files run each: ${programs.map(([name, count]) => `${name} (${count})`).join(", ") || "(none found)"}`,
   ].join("\n");
 }
 

@@ -18,7 +18,10 @@ function parts() {
   return {
     project: { name: "Tide Tables", summary: "Tides for every port." },
     parts: tops.map((top) => ({ id: top, parent: null, label: `The ${top}`, kind: top === "web" ? "ui" : "service", summary: `Everything in ${top}.`, paths: [`${top}/**`] })),
-    outside: prompt.includes("stripe (") ? [{ id: "stripe", label: "Stripe", summary: "Card payments.", packages: ["stripe"], hosts: [] }] : [],
+    outside: [
+      ...(prompt.includes("stripe (") ? [{ id: "stripe", label: "Stripe", summary: "Card payments.", packages: ["stripe"], hosts: [], programs: [] }] : []),
+      ...(/^Programs the code runs.*\bgit \(/m.test(prompt) ? [{ id: "git", label: "Git", summary: "The code's history.", packages: [], hosts: [], programs: ["git"] }] : []),
+    ],
     links: [],
   };
 }
