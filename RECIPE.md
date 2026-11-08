@@ -165,6 +165,22 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   or file's name, a folder or file path, or a route such as GET /orders."; with nothing found: "Nothing on the
   chart matches." `/` is read by the character typed, so on AZERTY it works with shift. It needs no Claude, so
   it works on a remote project too.
+- **Impact.** `i`, or **Show impact** in a card's details (24px, 6px radius, a `t.border` frame, `t.accent`
+  while on, "Hide impact"), lights what depends on the card picked, any number of steps away:
+  - **Affected cards** are tinted in the accent by how many steps they are from the source (alpha `40`, `26`,
+    then `14` from three on) and framed in it, with a tab over their top-right edge (18px, 10.5px `t.accent`
+    on `t.background`): the steps, and "· 4 files" when files of theirs are affected.
+  - **The source's cards** are framed 2px in the accent, with a "source" tab.
+  - **The lines** from each affected card towards the source are lit in place of the card picked's.
+  - **The rest dims** to 35% opacity, the other lines as on a focused level.
+  - **The details** of the source say "14 parts and 52 files depend on it" ("Nothing on the chart depends on it.",
+    or "Working out what depends on it…" until the walk is done), and in 11px `t.dim` "From the imports and
+    requests the scan found."
+
+  The source is kept apart from the card picked: the impact stays as the levels change, inside a part its
+  files light one by one, and a card picked by hand becomes the source. `i` or `esc` turns it off, as do
+  reading the chart again and another project; with no card picked, `i` says in the status bar for 2.5s
+  "Pick a card first: i lights what depends on it". The status bar lists `i impact`, or `i impact off`.
 - **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the
   cards it names light up. Explanations are kept per card until its code or links change: an update that
@@ -202,7 +218,16 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   ASCII alone (`\uXXXX` for the rest), the other fields on the first line, then each part, file, endpoint and
   link on a line of its own (`"nodes":[`, one per line, `],` …, `]}`): still JSON. `readChart` reads it a line
   at a time, and any other JSON (a chart written before, on one line) in one go. Reading also files each link
-  under every part one of its ends is in (`linksUnder`), so a level goes through its own links, not all.
+  under every part one of its ends is in (`linksUnder`), so a level goes through its own links, not all, and
+  by which way it goes (`users`, `used`: each end a file, an endpoint taken to its file, or a node).
+  `impactOf(chart, ref, { direction })` walks those backwards ("usedBy") or forwards ("uses") from a file, a
+  part (its files and those of the parts inside it) or a node, ring by ring: each file or node reached with
+  its fewest `steps`, the end it was reached `from` and the link `via`; links in a circle end, and the source is
+  not among those reached. It gathers what it reaches by part (`groups`), as a file shows on any level as its
+  part's card except inside that part, so `impactOn(chart, level, impact)` goes through parts, not files: the
+  cards with their fewest steps and affected files, the source's cards, the lines towards the source, what has
+  no card on the level by part (`elsewhere`), and `counts` (parts at the deepest, and files). On 20,000 files,
+  in Herdr's QuickJS: 13 ms for the walk from the most used file, under 1 ms to place it on a level.
 - `layout.js`: `elkLevel` (bands 0/1/2, card sizes per direction) and `fromElk` (zoom, centering, band
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
@@ -316,6 +341,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   card with a chevron goes inside; the trail and `⌫` go back up. Clicking the card picked, or the chart
   around the cards, puts it down and shows the level's details.
 - The wheel zooms around the pointer and the % label follows; `0` fits.
+- `i` on a card picked lights what depends on it: on the tide tables, picking `db.ts` inside Server and
+  pressing `i` frames Server as the source and lights Website (2 steps) and Jobs (2 steps) with the lines
+  from them to Server; Mail and the database dim. Inside Website › Pages both pages show 3, the kit 2.
 - `e` on a card shows "Explained by your Claude", then the text. Picking another card and coming back shows
   it again without asking, and so does an update that changed a file in another part.
 - A question asked with a card picked is listed only on that card; with nothing picked, only that level's
