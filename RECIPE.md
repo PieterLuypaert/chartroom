@@ -54,8 +54,9 @@ band has a label pill in 11px medium `t.dim` on `t.chrome` ("Used by  2", "Parts
 
 Card sizes at 100%: left to right, inside 236×78 and outside 184×36; top to bottom, 188×50 and 160×32.
 Outside services always take the outside size. **Inside cards**: 9px radius, `t.background` fill, 1px
-`t.border` frame, a 20px `t.raised` tile with a 12px kind icon, the name in 13px semibold, and a chevron
-when the card opens. Left to right, two 11.8px `t.muted` lines say what it does; top to bottom, one 11px
+`t.border` frame, 14px of room on the left and 11px on the right, a 20px `t.raised` tile with a 12px kind
+icon in a column of its own, centred down the card beside its words (so it keeps as much room above it as
+below), the name in 13px semibold, and a chevron when the card opens. Left to right, two 11.8px `t.muted` lines say what it does; top to bottom, one 11px
 `t.dim` line says what it is ("server · 14 files", or a file's folder and "2 endpoints"). A file card left
 to right has one line plus a route chip: the method on `t.accent` at alpha `26`, the path in JetBrains
 Mono, "+N" for more. **Outside cards** are pills on `t.chrome` with an icon and a 12.5px `t.muted` name.
@@ -142,7 +143,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - **Moving around.** Click a card to pick it: its lines light and fade in; hovering lights a card's lines
   too; arrow keys step through the cards in reading order. A click on the card picked, or on the chart
   around the cards, puts it down: its lines fade back, and the details and answers are the level's again
-  (the end of a drag is no click, and a card's click is left to the card). Double-click or `↵` goes inside a card that
+  (the end of a drag is no click, and a card's click is left to the card). A click around the cards also
+  turns the impact off. Double-click or `↵` goes inside a card that
   opens, and the new level fades in. `⌫`, `esc`, the back chevron or a crumb goes up, with the part you came
   from picked. A press that moves 4px drags the chart (the release is no click); it moves freely as long as
   120px stays in view. The wheel or two fingers zoom around the pointer (60% to 160%); with shift or ⌘ they
@@ -169,9 +171,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   while on, "Hide impact"), lights what depends on the card picked, any number of steps away:
   - **Affected cards** are tinted in the accent by how many steps they are from the source (alpha `40`, `26`,
     then `14` from three on) and framed in it. A mark filled with the accent holds the steps in bold
-    `t.background`: on a card, a 20px square (5px radius) in a column of its own, centred down the card
-    beside the name and the line under it, so it keeps as much room above it as below, and as wide as the
-    icon's tile, so the name stays where it was; on a slim card, a 15px circle in the icon's place. Their
+    `t.background`: on a card, a 20px square (5px radius) in the place of the icon's tile, so nothing moves
+    when the impact is turned on; on a slim card, a 15px circle in the icon's place. Their
     first line under the name says in the accent how much of them is affected ("21 of 32 files affected",
     "affected"). In the card itself, not over its edge, where the lines' rings sit.
   - **The source's cards** are framed 2px in the accent, the mark holding their icon, the line "source".
@@ -182,8 +183,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
     requests the scan found."
 
   The source is kept apart from the card picked: the impact stays as the levels change, inside a part its
-  files light one by one, and a card picked by hand becomes the source. `i` or `esc` turns it off, as do
-  reading the chart again and another project; with no card picked, `i` says in the status bar for 2.5s
+  files light one by one, and a card picked by hand becomes the source. `i`, `esc` or a click on the chart
+  around the cards turns it off, as do reading the chart again and another project; with no card picked, `i` says in the status bar for 2.5s
   "Pick a card first: i lights what depends on it". The status bar lists `i impact`, or `i impact off`.
 - **Explain.** Picking a card shows its kept explanation at once if the card has not changed since, else
   **Explain this**. That button or `e` has Claude explain the card in the background (about 120 words); the

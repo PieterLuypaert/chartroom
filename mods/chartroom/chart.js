@@ -228,8 +228,8 @@ function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
   }
   const isTall = direction === "RIGHT";
   const route = box.kind === "file" && isTall ? box.routes?.[0] : null;
-  // With the impact, its mark takes a column of its own beside the words, so the words are narrower.
-  const width = box.w - (isMarked ? 52 : 24) * zoom;
+  // The icon (with the impact, its mark) has a column of its own beside the words.
+  const width = box.w - 52 * zoom;
   const about = isTall ? twoLines(box.summary || subline(box), width, 11.8 * zoom).slice(0, route ? 1 : 2) : [subline(box)];
   // With the impact, its words take the first line, so the card keeps its height.
   const lines = isMarked ? [impactWords(box), ...about].slice(0, about.length) : about;
@@ -238,22 +238,15 @@ function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
     .when(box.isOpenable, (el) => el.child(chevron(t, 12 * zoom)));
   const words = lines.map((line, index) => div().min_w(0).truncate().text_size((isTall ? 11.8 : 11) * zoom)
     .text_color(isMarked && index === 0 ? t.accent : isTall ? t.muted : t.dim).when(isMarked && index === 0, (el) => el.font_medium()).child(line));
-  const card = framed(isMarked ? h_flex() : v_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(9 * zoom).bg(ground).pl(14 * zoom).pr(11 * zoom);
-  // The mark in a column of its own, centred down the card, so it keeps as much room above it as
-  // below, as wide as the icon's tile, so the name stays where it was.
-  if (isMarked) {
-    return card.gap(8 * zoom).items_center()
-      .child(impactMark(t, box, 20 * zoom, zoom))
-      .child(v_flex().flex_1().min_w(0).gap(4 * zoom).justify_center().child(name).children(words)
-        .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom))));
-  }
-  return card.gap(4 * zoom).justify_center()
-    .child(h_flex().min_w(0).gap(8 * zoom).items_center()
-      .child(div().size(20 * zoom).flex_none().rounded(5 * zoom).bg(t.raised).flex().items_center().justify_center()
-        .child(svg(iconOf(box)).size(12 * zoom).text_color(t.muted)))
-      .child(name))
-    .children(words)
-    .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom)));
+  // The icon's tile, or with the impact its mark, in a column of its own, centred down the card beside
+  // the words, so it keeps as much room above it as below; the same with the impact on or off, so
+  // nothing moves when it is turned on.
+  const lead = isMarked ? impactMark(t, box, 20 * zoom, zoom)
+    : div().size(20 * zoom).flex_none().rounded(5 * zoom).bg(t.raised).flex().items_center().justify_center().child(svg(iconOf(box)).size(12 * zoom).text_color(t.muted));
+  return framed(h_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(9 * zoom).bg(ground).pl(14 * zoom).pr(11 * zoom).gap(8 * zoom).items_center()
+    .child(lead)
+    .child(v_flex().flex_1().min_w(0).gap(4 * zoom).justify_center().child(name).children(words)
+      .when(Boolean(route), (el) => el.child(routeChip(t, route, box.routes.length - 1, zoom))));
 }
 
 // A file's first endpoint as a chip: its method on a tint, its path in the terminals' font, and how
@@ -275,13 +268,13 @@ function plainCard(t, box, isSelected, onPick, onHover) {
     .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().text_color(isInside ? t.foreground : t.muted).child(box.label))
     .when(box.isOpenable, (el) => el.child(chevron(t, 12)));
   const second = div().min_w(0).truncate().text_size(11).text_color(isMarked ? t.accent : t.dim).child(isMarked ? impactWords(box) : subline(box));
-  const card = framed(isMarked ? h_flex() : v_flex(), t, box, isSelected, onPick, onHover).pl(13).pr(10).rounded(8)
-    .bg(isSelected ? t.selected : impactTint(t, box) ?? (isInside ? t.background : t.chrome));
-  // As on ELK's cards: the mark in a column of its own, centred down the card.
-  if (isMarked) return card.gap(6).items_center().child(impactMark(t, box, 16, 1)).child(v_flex().flex_1().min_w(0).gap(2).justify_center().child(name).child(second));
-  return card.gap(2).justify_center()
-    .child(h_flex().min_w(0).gap(6).items_center().child(svg(iconOf(box)).size(13).flex_none().text_color(isInside ? t.muted : t.dim)).child(name))
-    .child(second);
+  // As on ELK's cards: the icon, or the mark, in a column of its own, centred down the card.
+  const lead = isMarked ? impactMark(t, box, 16, 1)
+    : div().size(16).flex_none().flex().items_center().justify_center().child(svg(iconOf(box)).size(13).text_color(isInside ? t.muted : t.dim));
+  return framed(h_flex(), t, box, isSelected, onPick, onHover).pl(13).pr(10).gap(6).items_center().rounded(8)
+    .bg(isSelected ? t.selected : impactTint(t, box) ?? (isInside ? t.background : t.chrome))
+    .child(lead)
+    .child(v_flex().flex_1().min_w(0).gap(2).justify_center().child(name).child(second));
 }
 
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to
