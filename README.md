@@ -8,7 +8,9 @@ The Chartroom reads a project, asks `claude` to name its parts and describe ever
 
 ![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/panel-whole-app.png)
 
-Press `i` to see what depends on the card picked:
+**Impact** shows what a change to a part or file can reach. Pick a card and press `i`: every card that depends on it lights up, marked with how many steps away it is, and the rest dims. The details count the parts and files, group them by step, and show the chain back to the card picked. **Uses** turns the question around, to what the card relies on, and **Direct only** keeps what is one step away. It comes straight from the imports and requests in the code, without Claude, so it is instant.
+
+Here, the three parts that use Chart drawing directly:
 
 ![The impact of Chart drawing, direct only: Tests, Description checker and Chart panel in Herdr lit one step away, the rest dimmed, and the Impact section in the details](docs/panel-impact.png)
 
