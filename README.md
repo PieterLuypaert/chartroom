@@ -6,15 +6,15 @@ An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn
 
 The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
 
-![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/chart-whole-app.png)
+![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/panel-whole-app.png)
 
 Press `i` to see what depends on the card picked:
 
-![The impact of Chart drawing, direct only: Tests, Description checker and Chart panel in Herdr lit one step away, the rest dimmed, and the Impact section in the details](docs/chart-impact.png)
+![The impact of Chart drawing, direct only: Tests, Description checker and Chart panel in Herdr lit one step away, the rest dimmed, and the Impact section in the details](docs/panel-impact.png)
 
 Go inside a part to see its files:
 
-![Inside Chart drawing: the file Project scan picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/chart-inside-a-part.png)
+![Inside Chart drawing: the file Project scan picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/panel-inside-a-part.png)
 
 ## Features
 
