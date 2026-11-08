@@ -18,7 +18,7 @@ async function git(dir, args) {
   return { ok: code === 0, out: out.trim(), err: err.trim() };
 }
 
-const isSkipped = (path, isPlain) => path.split("/").some((part) => SKIPPED.has(part) || (isPlain && SKIPPED_WITHOUT_GIT.has(part))) || /\.(min\.js|d\.ts|map)$/.test(path) || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path);
+const isSkipped = (path, isPlain) => path.split("/").some((part) => SKIPPED.has(part) || (isPlain && SKIPPED_WITHOUT_GIT.has(part))) || /\.(min\.js|map)$/.test(path) || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path);
 
 // The repos to read: the one the folder is in (only the part under the folder), else each repo in
 // a folder up to two levels down. A folder with neither is read as plain files.

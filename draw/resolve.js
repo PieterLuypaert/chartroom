@@ -76,6 +76,8 @@ export function resolverFor(files, { aliases = [], goModules = [], psr4 = [], cr
     if (paths.has(base)) return base;
     for (const ext of JS_EXTS) if (paths.has(`${base}.${ext}`)) return `${base}.${ext}`;
     for (const ext of JS_EXTS) if (paths.has(`${base}/index.${ext}`)) return `${base}/index.${ext}`;
+    // A project's own declarations, only where no code file answers: types/index.d.ts for "../types".
+    for (const declared of [`${base}.d.ts`, `${base}/index.d.ts`]) if (paths.has(declared)) return declared;
     const stripped = base.replace(/\.(js|jsx|mjs|cjs)$/, "");
     return stripped !== base ? jsFile(stripped) : null;
   };
