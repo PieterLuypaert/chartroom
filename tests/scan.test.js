@@ -91,6 +91,29 @@ describe("extract", () => {
     expect(found.routes.map((route) => `${route.m} ${route.p}`)).toEqual(["POST /orders/:id/refund"]);
   });
 
+  test("reads the programs a file runs, in each language, by the name written in the call", () => {
+    const programs = (path, text) => extract(path, text).programs;
+    const js = 'const run = Bun.spawn(["git", "-C", dir]);\nconst top = await exec("git", ["rev-parse"]);\nexecSync("docker compose up");\nawait $`ffmpeg -i ${a}`;\nexecFileSync("herdr-app", ["check"]);\n';
+    expect(programs("src/run.ts", js)).toEqual(["git", "docker", "ffmpeg", "herdr-app"]);
+    expect(programs("tools/run.py", 'subprocess.run(["git", "status"])\nos.system("convert a.png b.jpg")\n')).toEqual(["git", "convert"]);
+    expect(programs("cmd/run.go", 'out, _ := exec.CommandContext(ctx, "docker", "ps").Output()\n')).toEqual(["docker"]);
+    expect(programs("src/run.rs", 'let out = Command::new("git").arg("log").output();\n')).toEqual(["git"]);
+    expect(programs("src/Run.java", 'new ProcessBuilder("git", "log");\nRuntime.getRuntime().exec("ffmpeg -i x");\n')).toEqual(["git", "ffmpeg"]);
+    expect(programs("src/run.php", '$log = shell_exec("git log");\n')).toEqual(["git"]);
+  });
+
+  test("leaves out shells, runtimes, a database's exec, a pattern's exec and a program held in a variable", () => {
+    const text = 'exec("sh", ["-c", SNIPPET]);\nexec("bun", [script, payload]);\ndb.exec("create table tides (port text)");\n/x/.exec("git");\nspawn(CLAUDE, args);\n';
+    expect(extract("src/run.ts", text).programs).toEqual([]);
+    expect(extract("src/run.php", '$pdo->exec("delete from tides");\npassthru(\'bin/console tides:dump\', $code);\n').programs).toEqual([]);
+  });
+
+  test("leaves out a call shown in a comment", () => {
+    const text = '// for example exec("git", ["log"])\n/**\n * Bun.spawn(["docker", "ps"])\n */\nrun(); // then execSync("make all")\nexecSync("make all");\n';
+    expect(extract("src/run.ts", text).programs).toEqual(["make"]);
+    expect(extract("tools/run.py", '# subprocess.run(["git", "log"])\nsubprocess.run(["rsync", "-a"])\n').programs).toEqual(["rsync"]);
+  });
+
   test("reads Go's imports and its routes, with Go 1.22 methods", () => {
     const found = extract("cmd/server/main.go", 'package main\n\nimport (\n  "net/http"\n  "example.com/tides/store"\n)\n\nfunc Serve() {\n  mux.HandleFunc("GET /tides/{port}", tides)\n  r.Post("/ports", addPort)\n}\n');
     expect(found.imports.map((one) => one.spec)).toEqual(["net/http", "example.com/tides/store"]);

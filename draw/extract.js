@@ -1,6 +1,6 @@
 // What one file says about itself, read from its text with patterns rather than a parser: what it
 // imports, what it defines, the comment at its top, the endpoints it answers and the web requests
-// it makes, and where its routes are mounted: a prefix for all of its own routes (`prefix`), and
+// it makes, the programs it runs, and where its routes are mounted: a prefix for all of its own routes (`prefix`), and
 // the routers it mounts at a path (`mounts`, each the imported name of a router and its path). Patterns catch most of these, not all of them; Claude fills in what they miss.
 
 const JS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "vue", "svelte", "astro"];
@@ -41,7 +41,62 @@ export function extract(path, text) {
   const lang = langOf(path);
   const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp, jvm: extractJvm, rust: extractRust }[lang];
   const found = by ? by(path, text) : { imports: [], defs: [], routes: [], requests: [] };
-  return { lang, doc: docOf(text), prefix: "", mounts: [], ...found, tests: testsOf(lang, text) };
+  return { lang, doc: docOf(text), prefix: "", mounts: [], ...found, tests: testsOf(lang, text), programs: programsOf(lang, text) };
+}
+
+// The programs a file runs, by the name written in the call, in order and at most MAX_PROGRAMS:
+// - JS/TS: spawn, execFile, execa and their Sync forms, Bun.spawn, and exec with the program and a
+//   list of arguments (`exec("git", [...])`); a bare exec or execSync with a command line, by its
+//   first word; Bun's and zx's $`...`. A dotted exec with one string (`db.exec("...")`) is a
+//   database's, not a program.
+// - Python subprocess and os.system, Go exec.Command, Rust Command::new, Java and Kotlin
+//   ProcessBuilder and Runtime exec, PHP shell_exec, exec, system, passthru, proc_open and popen.
+// Only a lowercase name counts, so SQL and variables do not, and a name that runs on into a path
+// (bin/console) does not either. A call in a comment is left out, and so are shells, language
+// runtimes and package managers (which run the project's own scripts) and the shell's everyday
+// tools.
+const MAX_PROGRAMS = 20;
+// Each pattern's group is the program's name, lowercase as a command is typed.
+const RUNS = {
+  js: [
+    /(?<![\w$])(?:spawn|spawnSync|execFile|execFileSync|execa|execaSync)\s*\(\s*\[?\s*['"`]([a-z][a-z0-9._+-]*)['"`]/g,
+    /(?<![\w$])exec(?:Sync)?\s*\(\s*['"`]([a-z][a-z0-9._+-]*)['"`]\s*,\s*\[/g,
+    /(?<![\w$.>])exec(?:Sync)?\s*\(\s*['"`]([a-z][a-z0-9._+-]*)[\s'"`]/g,
+    /(?<![\w$])\$`\s*([a-z][a-z0-9._+-]*)(?![a-z0-9._+\-/\\:])/g,
+  ],
+  python: [/\b(?:subprocess\.(?:run|call|check_call|check_output|Popen)|os\.(?:system|popen))\s*\(\s*\[?\s*[rbf]?['"]([a-z][a-z0-9._+-]*)(?![a-z0-9._+\-/\\:])/g],
+  go: [/\bexec\.Command(?:Context)?\(\s*(?:[\w.]+\s*,\s*)?"([a-z][a-z0-9._+-]*)"/g],
+  rust: [/\bCommand::new\(\s*"([a-z][a-z0-9._+-]*)"/g],
+  jvm: [
+    /\bProcessBuilder\(\s*(?:(?:listOf|List\.of|Arrays\.asList)\(\s*)?"([a-z][a-z0-9._+-]*)(?![a-z0-9._+\-/\\:])/g,
+    /getRuntime\(\)\.exec\(\s*(?:new\s+String\[\]\s*\{\s*|arrayOf\(\s*)?"([a-z][a-z0-9._+-]*)(?![a-z0-9._+\-/\\:])/g,
+  ],
+  php: [/(?<![\w$>:])(?:shell_exec|exec|system|passthru|proc_open|popen)\s*\(\s*(?:\[\s*)?['"]([a-z][a-z0-9._+-]*)(?![a-z0-9._+\-/\\:])/g],
+};
+const NOT_PROGRAMS = new Set([
+  "sh", "bash", "zsh", "fish", "dash", "ksh", "cmd", "powershell", "pwsh", "env", "sudo", "nohup", "exec",
+  "node", "nodejs", "bun", "bunx", "deno", "tsx", "ts-node", "npx", "npm", "pnpm", "yarn", "python", "python3", "pip", "ruby", "perl", "php", "java", "go", "cargo",
+  "echo", "printf", "cat", "ls", "rm", "cp", "mv", "mkdir", "rmdir", "touch", "chmod", "chown", "ln", "test", "true", "false", "sleep", "kill", "pkill", "ps",
+  "grep", "egrep", "sed", "awk", "head", "tail", "find", "xargs", "which", "cd", "pwd", "tee", "sort", "uniq", "wc", "cut", "tr", "date", "dd", "tar", "gzip", "unzip",
+]);
+
+function programsOf(lang, text) {
+  const programs = [];
+  const found = (RUNS[lang] ?? []).flatMap((pattern) => [...text.matchAll(pattern)]).sort((a, b) => a.index - b.index);
+  for (const m of found) {
+    if (isInComment(text, m.index)) continue;
+    const name = m[1];
+    if (!NOT_PROGRAMS.has(name) && !programs.includes(name)) programs.push(name);
+    if (programs.length === MAX_PROGRAMS) break;
+  }
+  return programs;
+}
+
+// Whether what is at `index` is in a comment: on a line that opens with one (//, #, /*, or * inside
+// a block), or after // later in its line.
+function isInComment(text, index) {
+  const before = text.slice(text.lastIndexOf("\n", index - 1) + 1, index);
+  return /^\s*(?:\/\/|#|\/?\*)/.test(before) || /(?:^|\s)\/\/\s/.test(before);
 }
 
 // The titles of the tests a file holds, in order and at most MAX_TESTS, so a test file is described
