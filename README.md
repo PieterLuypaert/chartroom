@@ -2,9 +2,7 @@
 
 [![Tests](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml/badge.svg)](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml)
 
-An interactive map of your codebase in the [Herdr app](https://herdr.dev), drawn by your own Claude.
-
-The Chartroom reads a project, asks `claude` to name its parts and describe every file, and shows the result as a chart you can explore: the app's parts as cards, what uses what as lines, one level at a time.
+Chartroom is an add-on for the [Herdr app](https://herdr.dev). It draws an interactive map of a codebase: the app's parts appear as cards, with lines between them showing what uses what, and you can open each part to see what's inside. Your own Claude names the parts and describes every file, so developers can find their way around a project, search it, and ask questions about any piece of it.
 
 ![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/panel-whole-app.png)
 
