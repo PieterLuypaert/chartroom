@@ -140,7 +140,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   and the uncommitted files changed after `chart.json` was written. Above zero, Update lights up and the
   strip shows. `u` updates, describing only the files that changed.
 - **Moving around.** Click a card to pick it: its lines light and fade in; hovering lights a card's lines
-  too; arrow keys step through the cards in reading order. Double-click or `↵` goes inside a card that
+  too; arrow keys step through the cards in reading order. A click on the card picked, or on the chart
+  around the cards, puts it down: its lines fade back, and the details and answers are the level's again
+  (the end of a drag is no click, and a card's click is left to the card). Double-click or `↵` goes inside a card that
   opens, and the new level fades in. `⌫`, `esc`, the back chevron or a crumb goes up, with the part you came
   from picked. A press that moves 4px drags the chart (the release is no click); it moves freely as long as
   120px stays in view. The wheel or two fingers zoom around the pointer (60% to 160%); with shift or ⌘ they
@@ -311,7 +313,8 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - In a project without a chart, **Draw the chart** shows the four steps with a rising percentage, then
   `.chartroom/chart.json` appears with `"schema":"chartroom/chart@1"` next to a `.gitignore` of `*`.
 - The top level shows "Used by", "Parts" and "Uses" bands joined by right-angled lines. Double-clicking a
-  card with a chevron goes inside; the trail and `⌫` go back up.
+  card with a chevron goes inside; the trail and `⌫` go back up. Clicking the card picked, or the chart
+  around the cards, puts it down and shows the level's details.
 - The wheel zooms around the pointer and the % label follows; `0` fits.
 - `e` on a card shows "Explained by your Claude", then the text. Picking another card and coming back shows
   it again without asking, and so does an update that changed a file in another part.
