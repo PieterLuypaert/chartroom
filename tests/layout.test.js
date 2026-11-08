@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { CARD_SIZES, columnsFor, elkLevel, fromElk, headingType, layOut, SIZES } from "../mods/chartroom/layout.js";
+import { CARD_SIZES, columnsFor, DETAILS, detailsSize, elkLevel, fromElk, headingType, layOut, SIZES } from "../mods/chartroom/layout.js";
 import { levelOf, readChart } from "../mods/chartroom/model.js";
 
 const chart = readChart(readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8"));
@@ -179,5 +179,34 @@ describe("headingType", () => {
 
   test("is smaller on a low screen, what it does kept to two lines", () => {
     expect(headingType(1, true)).toMatchObject({ padTop: 12, gap: 2, name: 19, summary: 12, summaryLine: 17, summaryMax: 34 });
+  });
+});
+
+describe("detailsSize", () => {
+  const wide = (dragged, width = 1400) => detailsSize({ isWide: true, panel: { width, height: 800 }, dragged });
+  const low = (dragged, height = 800) => detailsSize({ isWide: false, panel: { width: 600, height }, dragged });
+
+  test("is the width dragged to beside the chart, kept between its least and half the panel", () => {
+    expect(wide(500)).toBe(500);
+    expect(wide(100)).toBe(DETAILS.minWidth);
+    expect(wide(1000)).toBe(700);
+  });
+
+  test("is the height dragged to under the chart, kept between its least and 60% of the panel", () => {
+    expect(low(400)).toBe(400);
+    expect(low(50)).toBe(DETAILS.minHeight);
+    expect(low(700)).toBe(480);
+  });
+
+  test("is the default when none was dragged: 340 wide, or 36% of the height between 150 and 300", () => {
+    expect(wide(null)).toBe(DETAILS.width);
+    expect(low(null, 600)).toBe(216);
+    expect(low(null, 300)).toBe(150);
+    expect(low(null, 1200)).toBe(300);
+  });
+
+  test("keeps a size dragged on a bigger panel within the smaller one it is on now", () => {
+    expect(wide(650, 1000)).toBe(500);
+    expect(low(400, 500)).toBe(300);
   });
 });
