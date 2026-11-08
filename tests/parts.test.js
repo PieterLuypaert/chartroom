@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assign, checkParts, globToRegExp, treeOf } from "../draw/parts.js";
+import { assign, checkParts, globToRegExp, partsPrompt, PARTS_SCHEMA, treeOf } from "../draw/parts.js";
 import { describePrompt, digestOf, headOf } from "../draw/describe.js";
 
 describe("parts", () => {
@@ -75,6 +75,21 @@ describe("digestOf", () => {
   test("lists the tests a file holds by their titles", () => {
     const digest = digestOf(file({ tests: ["reads a port", "skips a storm, quietly"] }), facts);
     expect(digest).toContain("  tests: reads a port; skips a storm, quietly");
+  });
+
+  test("says which programs a file runs", () => {
+    expect(digestOf(file({ programs: ["git", "docker"] }), facts)).toContain("  runs: git, docker");
+  });
+});
+
+describe("partsPrompt", () => {
+  test("shows Claude the programs the code runs, as it shows the packages and addresses, and asks for them on outside services", () => {
+    const file = (path, programs) => ({ path, loc: 10, packages: [], hosts: [], programs });
+    const scan = { name: "tides", repos: [{ path: "" }], routes: [], files: [file("src/scan.ts", ["git"]), file("src/main.ts", ["git", "docker"]), file("src/page.ts", [])] };
+    const prompt = partsPrompt(scan);
+    expect(prompt).toContain("Programs the code runs, with how many files run each: git (2), docker (1)");
+    expect(prompt).toContain("programs such as git or docker), each with the packages, hosts or programs below that show it.");
+    expect(PARTS_SCHEMA.properties.outside.items.required).toContain("programs");
   });
 });
 

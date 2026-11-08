@@ -36,7 +36,7 @@ export function buildChart({ scan, parts, owner, described, generatedAt = new Da
   const stats = statsOf(scan.files, allParts, ownerOf);
   const nodes = [
     ...allParts.map((part) => ({ id: part.id, parent: part.parent, label: part.label, kind: part.kind, summary: part.summary, paths: part.paths, stats: stats.get(part.id) })),
-    ...parts.outside.map((one) => ({ id: one.id, parent: null, label: one.label, kind: "external", summary: one.summary, packages: one.packages, hosts: one.hosts, stats: { files: 0, loc: 0 } })),
+    ...parts.outside.map((one) => ({ id: one.id, parent: null, label: one.label, kind: "external", summary: one.summary, packages: one.packages, hosts: one.hosts, programs: one.programs ?? [], stats: { files: 0, loc: 0 } })),
   ];
   const files = scan.files.map((file) => {
     const about = described.files[file.path];
@@ -97,8 +97,9 @@ function statsOf(files, parts, ownerOf) {
   return stats;
 }
 
-// The scan's links between files, a link from each file to the outside services its packages and
-// addresses are theirs, and the links Claude named between parts.
+// The scan's links between files, a link from each file to the outside services its packages,
+// addresses and programs are theirs, and the links Claude named between parts. A service named
+// before programs were read has none.
 function linksOf(scan, parts) {
   const links = scan.links.map((link) => ({ a: `f:${link.a}`, b: `f:${link.b}`, k: link.k, w: link.w, labels: link.labels }));
   for (const file of scan.files) {
@@ -106,7 +107,9 @@ function linksOf(scan, parts) {
       const packages = file.packages.filter((pkg) => one.packages.some((name) => sameOrUnder(pkg, name)));
       const hosts = file.hosts.filter((host) => one.hosts.some((name) => host === name.toLowerCase() || host.endsWith(`.${name.toLowerCase()}`)));
       if (packages.length) links.push({ a: `f:${file.path}`, b: `n:${one.id}`, k: "import", w: packages.length, labels: packages });
+      const programs = (file.programs ?? []).filter((name) => (one.programs ?? []).some((program) => program.toLowerCase() === name));
       if (hosts.length) links.push({ a: `f:${file.path}`, b: `n:${one.id}`, k: "http", w: hosts.length, labels: hosts });
+      if (programs.length) links.push({ a: `f:${file.path}`, b: `n:${one.id}`, k: "run", w: programs.length, labels: programs });
     }
   }
   for (const link of parts.links) links.push({ a: `n:${link.from}`, b: `n:${link.to}`, k: "link", w: 1, labels: [link.label] });
