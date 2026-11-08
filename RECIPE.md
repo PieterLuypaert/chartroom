@@ -22,17 +22,25 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
   tooltip "Search the chart (/)"; 320px while open. It is the first to give way when the header is short,
   down to its icon.
   Then a spacer, a 13px spinner while the chart is read again, and **↻ Update** (26px, 12px `t.muted`; `t.accent`
-  with a 1px accent frame when the code has moved on). In the side panel only, two 26px icon buttons
-  follow: **full size** (square) and **close** (x).
+  with a 1px accent frame when the code has moved on). For the Chartroom's own chart, a chevron beside it
+  (12px, a 1px `t.border` line between them, "More ways to draw the chart") opens a 260px menu in the
+  dropdowns' frame, as the model list works: **Update** ("Only what changed since the chart", `u`) and
+  **Draw again from scratch…** ("The parts and every file, anew", `⇧U`), two-line rows of 40px with the
+  key on the right. In the side panel only, two 26px icon buttons follow: **full size** (square) and
+  **close** (x).
 - **Trail, 34px** (12px): a back chevron below the top level, then crumbs from the app's name down,
   between 11px `t.dim` chevrons. Earlier crumbs are `t.muted`, at most 120px wide and clickable; the current
   one is medium `t.foreground`. On the right: zoom controls `−` `NN%` `+` (22px, 12px, only with ELK's
   layout) and a 24px details toggle (`t.selected` while the details show; panel-right icon in a wide view,
   panel-left in a narrow one).
 - **Strips, when they apply.** During an update: 34px, a `t.working` spinner, "Updating · Describing every
-  file: 120 of 300 files" and **Stop**. When the code has moved on: 36px, a 7px `t.accent` dot, "The code
-  moved on since this chart: 2 commits, 3 files not committed" and a solid **Update the chart** (`t.solid`,
-  `t.solid_foreground` text). Errors: one 12px `t.blocked` line, such as "The last drawing failed: …".
+  file: 120 of 300 files" and **Stop** ("Drawing from scratch · …" for a drawing from scratch). When the
+  code has moved on: 36px, a 7px `t.accent` dot, "The code moved on since this chart: 2 commits, 3 files not
+  committed" and a solid **Update the chart** (`t.solid`, `t.solid_foreground` text). Before a drawing from
+  scratch, in its place: the dot, "Draw Chartroom again from scratch?" (medium), under it "Your Claude names
+  the parts again and describes all 35 files: about 2 calls, under a minute. The chart stays until the new
+  one is done." (11.5px `t.muted`, wrapping), and under that a solid **Draw again** and a framed **Not
+  now**. Errors: one 12px `t.blocked` line, such as "The last drawing failed: …".
 - **Body**: the chart and the details. From 900px wide, the details sit on the right (340px, left border);
   narrower, under the chart (36% of the height, kept between 150px and 300px, top border). Folded, the chart
   gets the whole width. Their edge can be dragged (`detailsSize` in `layout.js`): from 260px to half the
@@ -140,6 +148,12 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - **Chart behind the code.** Every 30s while open, git counts the commits past each repo's charted head
   and the uncommitted files changed after `chart.json` was written. Above zero, Update lights up and the
   strip shows. `u` updates, describing only the files that changed.
+- **Drawing again from scratch.** `⇧U`, or **Draw again from scratch…** in the menu beside Update, asks
+  first in a strip: the files the chart holds, about how many calls (one for the parts, one per 40 files)
+  and about how long (four calls at once, about 20 seconds each), from `fromScratchWords` in `find.js`.
+  Only **Draw again** starts it: `draw.js` without `--update`, which names the parts and describes every
+  file anew; the chart shows until the new one is written. `esc` or **Not now** drops the strip, and so
+  does another project. Only for the Chartroom's own chart, on this computer.
 - **Moving around.** Click a card to pick it: its lines light and fade in; hovering lights a card's lines
   too; arrow keys step through the cards in reading order. A click on the card picked, or on the chart
   around the cards, puts it down: its lines fade back, and the details and answers are the level's again
@@ -264,7 +278,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   bands), `detailsView` (details, explanation, answers, ask bar; `TextView.markdown`, `Input`),
   `searchBox` (the header's box, its field with `SEARCH_KEYS`, and the dropdown), `dropdownFrame` (the
   frame both dropdowns share). `drawing.js`: the first-drawing card, update strip, changed strip,
-  `endedWords`. `projects.js`: the picker's rows and dropdown, its projects grouped by `pickerItems` (in
+  `drawMenu` and `DRAW_WAYS` (the menu beside Update), `againStrip`, `endedWords`. `projects.js`: the picker's rows and dropdown, its projects grouped by `pickerItems` (in
   `model.js`, beside `projectsOf`).
   `models.js`: `MODELS` (Default, then the Opus and Sonnet versions by full name), `isModelName`,
   `modelLabel`; draw/ask.js
@@ -394,6 +408,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   questions show. Clicking an answer lights its cards.
 - After a commit, the "The code moved on since this chart" strip appears within 30s, and **Update the
   chart** starts an update.
+- `⇧U` shows "Draw Chartroom again from scratch?" with the files, calls and time; `esc` drops it. **Draw
+  again** shows "Drawing from scratch · Reading the code" over the chart, which stays until the new one
+  is written.
 - `/`, part of a file's name and `↵` show that file picked on its part's level with its lines lit; a route
   such as `GET /ports` finds the file that answers it.
 - The picker lists every space's project under "Spaces", each saying "Charted" or "No chart". Switching

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, FIND_ASKS, FIND_CHARTS, FIND_MAP, INLINE_BYTES, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, FIND_ASKS, FIND_CHARTS, FIND_MAP, fromScratchWords, INLINE_BYTES, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "../mods/chartroom/find.js";
 
 // A home with projects in it, and stand-ins for draw/draw.js: one that sleeps, one that records how
 // it was started.
@@ -203,5 +203,21 @@ describe("CHANGED", () => {
 
   test("counts a head git no longer knows as a commit", () => {
     expect(sh(CHANGED, repo, chartFile, "", "0000000000000000000000000000000000000000").stdout).toBe("1 1\n");
+  });
+});
+
+describe("fromScratchWords", () => {
+  test("asks before drawing a chart again, with its files, the calls and about how long", () => {
+    expect(fromScratchWords({ name: "Chartroom", files: 35 })).toEqual({
+      ask: "Draw Chartroom again from scratch?",
+      detail: "Your Claude names the parts again and describes all 35 files: about 2 calls, under a minute. The chart stays until the new one is done.",
+    });
+  });
+
+  test("says how long a big project takes: a call is 40 files, four at once, about 20 seconds each", () => {
+    expect(fromScratchWords({ name: "Shop", files: 6000 }).detail).toContain("all 6,000 files: about 151 calls, about 13 minutes.");
+    expect(fromScratchWords({ name: "Shop", files: 20000 }).detail).toContain("all 20,000 files: about 501 calls, about 42 minutes.");
+    expect(fromScratchWords({ name: "Shop", files: 60000 }).detail).toContain("all 60,000 files: about 1,501 calls, about 2 hours.");
+    expect(fromScratchWords({ name: "Shop", files: 1 }).detail).toContain("the one file: about 2 calls, under a minute.");
   });
 });

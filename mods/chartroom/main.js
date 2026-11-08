@@ -15,9 +15,9 @@ import { detailsSize, elkLevel, fromElk, headingType, layOut } from "./layout.js
 import { chartView, detailsView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
-import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
+import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, fromScratchWords, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
-import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
+import { againStrip, changedStrip, DRAW_WAYS, drawMenu, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
 
 // The layout block the panel lives in, and the tab bar's button: install.sh adds both.
 const BLOCK = "chartroom";
@@ -177,6 +177,9 @@ export default class Chartroom extends View {
     // keys are on, and the keyboard's place on the list.
     const model = stored(ASK_MODEL, null);
     Object.assign(this, { askModel: isModelName(model) ? model : null, isModelOpen: false, modelCursor: 0, modelList: cx.focus_handle() });
+    // The menu beside the header's Update, as the model list; and whether the strip asking before a
+    // drawing from scratch shows.
+    Object.assign(this, { isDrawMenuOpen: false, drawMenuCursor: 0, drawMenuList: cx.focus_handle(), isAskingAgain: false });
     // Finding a card (/): whether the search shows in place of the chart, what it found, the row the
     // keys are on, and the index of the chart it searches, made when the search opens.
     Object.assign(this, { isSearching: false, found: [], foundCursor: 0, searchIndex: null, indexedChart: null, indexing: null, levelAsked: 0 });
@@ -272,6 +275,8 @@ export default class Chartroom extends View {
     this.context = context;
     this.place = place;
     this.error = "";
+    // The question before a drawing from scratch was about the place left.
+    this.isAskingAgain = false;
     // A new count ends the watch of the place left; the next read watches this one's.
     this.watchCount = (this.watchCount ?? 0) + 1;
     this.watched = null;
@@ -338,6 +343,7 @@ export default class Chartroom extends View {
     this.foundScroll?.release();
     this.projectScroll?.release();
     this.modelList?.release();
+    this.drawMenuList?.release();
   }
 
   // The project's latest answers, read again while one is still being answered. The answer asked
@@ -528,6 +534,52 @@ export default class Chartroom extends View {
     else if (k === "escape") this.openModels(false, cx);
     else return;
     cx.stop_propagation();
+    cx.notify();
+  }
+
+  // Whether the Chartroom's own chart of this project can be drawn again from scratch now.
+  canDrawAgain() {
+    return this.kind === "chartroom" && Boolean(this.chart) && !this.isDrawing && !this.isStarting && !this.place?.on;
+  }
+
+  // The menu beside Update opened, with the keyboard on it and its first way under the keys, or
+  // closed, the keyboard back on the panel.
+  openDrawMenu(isOpen, cx) {
+    this.isDrawMenuOpen = isOpen;
+    if (isOpen) {
+      this.drawMenuCursor = 0;
+      this.drawMenuList.focus();
+    } else this.handle.focus();
+    cx.notify();
+  }
+
+  // A way picked in the menu: Update starts at once, drawing again from scratch asks first.
+  pickDrawWay(id, cx) {
+    this.openDrawMenu(false, cx);
+    if (id === "update") this.draw(cx);
+    else this.askAgain(cx);
+  }
+
+  drawMenuKey(e, cx) {
+    const k = e.key;
+    if (k === "down" || k === "up") this.drawMenuCursor = (this.drawMenuCursor + (k === "down" ? 1 : DRAW_WAYS.length - 1)) % DRAW_WAYS.length;
+    else if (k === "enter") this.pickDrawWay(DRAW_WAYS[this.drawMenuCursor].id, cx);
+    else if (k === "escape") this.openDrawMenu(false, cx);
+    else return;
+    cx.stop_propagation();
+    cx.notify();
+  }
+
+  // The strip under the trail that asks before the chart is drawn again from scratch, shown or
+  // dropped. Nothing is drawn until its Draw again.
+  askAgain(cx) {
+    if (!this.canDrawAgain()) return;
+    this.isAskingAgain = true;
+    cx.notify();
+  }
+
+  dropAgain(cx) {
+    this.isAskingAgain = false;
     cx.notify();
   }
 
@@ -776,17 +828,18 @@ export default class Chartroom extends View {
     return `${this.checkout}/draw/${name}`;
   }
 
-  // Draws the project's chart in the background, or brings the Chartroom's own chart up to date.
-  // A project with no chart yet is drawn from the top of its repository.
+  // Draws the project's chart in the background, or brings the Chartroom's own chart up to date, or
+  // with isFresh draws that one again from scratch. A project with no chart yet is drawn from the
+  // top of its repository.
   // Starts once, however often it is asked while starting; START_DRAW and the drawing itself refuse
   // a second drawing of a folder too. What it learns lands only on the project it started for.
-  draw(cx) {
+  draw(cx, { isFresh = false } = {}) {
     const place = this.place;
     if (!place?.cwd || this.isDrawing || this.isStarting) return;
     if (place.on) return notify({ title: "Chartroom", body: "Drawing a chart needs the project on this computer.", level: "warning" });
-    const isUpdate = this.kind === "chartroom";
+    const isUpdate = this.kind === "chartroom" && !isFresh;
     const context = this.context;
-    this.isStarting = true;
+    Object.assign(this, { isStarting: true, isAskingAgain: false });
     cx.spawn(async (cx) => {
       try {
         const script = await this.script("draw.js");
@@ -799,7 +852,7 @@ export default class Chartroom extends View {
         if (started.code !== 0) throw new Error(started.stderr.trim() || `starting it ended with ${started.code}`);
         // Read again once the drawing reports, not before: it may not have said it runs yet.
         if (this.context === context) {
-          Object.assign(this, { folder, isDrawing: true, progress: { step: "scan", done: 0, total: 0 } });
+          Object.assign(this, { folder, isDrawing: true, progress: { step: "scan", isUpdate, done: 0, total: 0 } });
           this.watch(place, cx);
         }
       } catch (error) {
@@ -1360,8 +1413,9 @@ export default class Chartroom extends View {
   }
 
   onKey(e, cx) {
-    // The model list takes its own keys; the chart does nothing while it is open.
-    if (this.isModelOpen) return;
+    // The model list and the menu beside Update take their own keys; the chart does nothing while
+    // one is open.
+    if (this.isModelOpen || this.isDrawMenuOpen) return;
     // Keys typed into the search are the search's, but for the ones that move through what it found.
     if (this.isSearching) {
       if (this.searchKey(e.key, cx)) {
@@ -1380,8 +1434,8 @@ export default class Chartroom extends View {
     }
     const m = e.modifiers ?? {};
     if (m.platform || m.control || m.alt) return;
-    // `/` by the character it types, as on an AZERTY keyboard it takes shift.
-    const k = e.key_char === "/" ? "/" : e.key;
+    // `/` by the character it types, as on an AZERTY keyboard it takes shift; ⇧U apart from u.
+    const k = e.key_char === "/" ? "/" : m.shift && e.key === "u" ? "U" : e.key;
     if (this.isPicking ? this.pickerKey(k, cx) : this.chartKey(k, cx)) {
       cx.stop_propagation();
       cx.notify();
@@ -1423,6 +1477,7 @@ export default class Chartroom extends View {
     else if (view && k === "enter") this.open(this.cardOf(view, this.selected), cx);
     else if (view && k === "backspace") this.up(cx);
     else if (view && k === "i") this.toggleImpact(cx);
+    else if (k === "escape" && this.isAskingAgain) this.dropAgain(cx);
     else if (k === "escape" && this.liveImpact()) this.hideImpact(cx);
     else if (k === "escape") {
       if (!view || !this.up(cx)) {
@@ -1433,6 +1488,7 @@ export default class Chartroom extends View {
     else if (view && k === "/") this.openSearch(cx);
     else if (k === "f" && !isTab()) this.openFullSize();
     else if (k === "u") this.draw(cx);
+    else if (view && k === "U" && this.canDrawAgain()) this.askAgain(cx);
     else if (k === "s") this.stop(cx);
     else if (view && k === "a" && this.folder && !this.place?.on) this.question.focus();
     else if (view && k === "m" && this.folder && !this.place?.on) this.openModels(true, cx);
@@ -1474,7 +1530,13 @@ export default class Chartroom extends View {
       .child(this.header(t, view))
       .when(Boolean(view), (el) => el.child(this.trail(t, view.level)))
       .when(Boolean(view) && this.isDrawing, (el) => el.child(updateStrip({ t, progress: this.progress, onStop: (cx) => this.stop(cx) })))
-      .when(Boolean(view) && !this.isDrawing && this.isBehind(), (el) => el.child(changedStrip({ t, changed: this.changed, isOwn: this.kind === "chartroom", onUpdate: (cx) => this.draw(cx) })))
+      .when(Boolean(view) && this.isAskingAgain && this.canDrawAgain(), (el) => el.child(againStrip({
+        t,
+        words: fromScratchWords({ name: this.chart.name, files: this.chart.files.size }),
+        onDraw: (cx) => this.draw(cx, { isFresh: true }),
+        onCancel: (cx) => this.dropAgain(cx),
+      })))
+      .when(Boolean(view) && !this.isAskingAgain && !this.isDrawing && this.isBehind(), (el) => el.child(changedStrip({ t, changed: this.changed, isOwn: this.kind === "chartroom", onUpdate: (cx) => this.draw(cx) })))
       .when(Boolean(error), (el) => el.child(div().flex_none().px(16).py(6).text_size(12).line_height("17px").text_color(t.blocked).child(error)))
       .child(this.body(t, view))
       // As the status bar beside it.
@@ -1531,15 +1593,29 @@ export default class Chartroom extends View {
       .when(!isTab(), (el) => el.child(this.iconButton(t, "hide", svg(`${ICONS}/x.svg`).size(14), "Close (esc)", () => this.hide())));
   }
 
-  // The header's Update: a word and an icon, lit while the code has moved on since the chart.
+  // The header's Update: a word and an icon, lit while the code has moved on since the chart. For
+  // the Chartroom's own chart, a chevron beside it opens the menu that also draws it again from
+  // scratch.
   updateButton(t, isOwn) {
     const isBehind = this.isBehind();
-    return h_flex().id("redraw").flex_none().h(26).px(8).gap(5).items_center().rounded(6).text_size(12)
-      .text_color(isBehind ? t.accent : t.muted).when(isBehind, (el) => el.border_1().border_color(t.accent))
+    const update = h_flex().id("redraw").flex_none().h_full().px(8).gap(5).items_center().rounded(6).when(isOwn, (el) => el.rounded_r(0))
+      .text_color(isBehind ? t.accent : t.muted)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
       .tooltip(isOwn ? "Update the chart with your Claude: only what changed (u)" : "Draw the chart with your Claude (u)")
       .on_click((_e, cx) => this.draw(cx))
       .child(div().text_size(14).child("↻")).child(isOwn ? "Update" : "Draw");
+    return h_flex().flex_none().h(26).items_center().rounded(6).text_size(12)
+      .when(isBehind, (el) => el.border_1().border_color(t.accent))
+      .child(update)
+      .when(isOwn, (el) => el.child(drawMenu({
+        t,
+        isOpen: this.isDrawMenuOpen,
+        cursor: this.drawMenuCursor,
+        list: this.drawMenuList,
+        onOpen: (isOpen, cx) => this.openDrawMenu(isOpen, cx),
+        onPick: (id, cx) => this.pickDrawWay(id, cx),
+        onKey: (e, cx) => this.drawMenuKey(e, cx),
+      })));
   }
 
   // The header's search box, and while it is open the dropdown of what it finds.
@@ -1802,6 +1878,7 @@ export default class Chartroom extends View {
     if (this.isPicking) return "↑↓ pick  ·  ↵ chart it  ·  esc close";
     if (view && this.isSearching) return "↑↓ pick  ·  ↵ go there  ·  esc close";
     if (view && this.isModelOpen) return "↑↓ pick  ·  ↵ ask on it  ·  esc back";
+    if (view && this.isDrawMenuOpen) return "↑↓ pick  ·  ↵ do it  ·  esc back";
     const close = isTab() ? [] : ["esc close"];
     if (this.isDrawing && !view) return [stepWords(this.progress), "s stop", ...close].join("  ·  ");
     if (!view) return [this.place?.cwd && !this.place.on ? "u draw" : "", "p project", ...close].filter(Boolean).join("  ·  ");
@@ -1815,7 +1892,9 @@ export default class Chartroom extends View {
     if (this.folder && !this.place?.on) keys.push("a ask", "m model", "e explain");
     keys.push(`d details ${this.detailsFolded ? "off" : "on"}`);
     keys.push("p project", this.isDrawing ? "s stop" : "u update");
+    const isAsking = this.isAskingAgain && this.canDrawAgain();
+    if (this.canDrawAgain()) keys.push(isAsking ? "esc not now" : "⇧U draw again");
     if (!isTab()) keys.push("f full size");
-    return [...keys, ...close].join("  ·  ");
+    return [...keys, ...(isAsking ? [] : close)].join("  ·  ");
   }
 }

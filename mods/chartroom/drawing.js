@@ -2,7 +2,8 @@
 // underway, a strip over the chart while it is brought up to date, and how one that ended badly
 // ended.
 import { div, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, Popup, v_flex } from "gpui-base";
+import { dropdownFrame } from "./chart.js";
 
 const ICONS = "mods/workspace-chrome";
 // The drawer's steps (draw/draw.js), in its order.
@@ -99,12 +100,66 @@ export function firstDrawing({ t, name, progress, onStop }) {
 // A colour, thinly: hex with an alpha.
 const thinOf = (color, alpha) => (/^#[0-9a-f]{6}$/i.test(color) ? `${color}${alpha}` : color);
 
-// A strip over the chart while it is brought up to date.
+// A strip over the chart while it is brought up to date, or drawn again from scratch.
 export function updateStrip({ t, progress, onStop }) {
+  const doing = progress?.isUpdate === false ? "Drawing from scratch" : "Updating";
   return h_flex().h(34).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border).text_size(12)
     .child(svg(`${ICONS}/spinner.svg`).size(12).flex_none().text_color(t.working).spin(900))
-    .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`Updating · ${stepWords(progress)}`))
+    .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`${doing} · ${stepWords(progress)}`))
     .child(stopButton(t, onStop));
+}
+
+// The ways to bring the Chartroom's own chart up to date, in the menu beside the header's Update.
+export const DRAW_WAYS = [
+  { id: "update", label: "Update", about: "Only what changed since the chart", key: "u" },
+  { id: "again", label: "Draw again from scratch…", about: "The parts and every file, anew", key: "⇧U" },
+];
+
+// The chevron beside the header's Update, and under it while open the menu of DRAW_WAYS. The open
+// state is the panel's own, as the ask bar's model list: a click on the chevron opens it, Up, Down,
+// Enter and Escape are the menu's, and a press outside closes it and goes no further, so a press on
+// the chevron closes it rather than opening it again.
+export function drawMenu({ t, isOpen, cursor, list, onOpen, onPick, onKey }) {
+  const trigger = div().id("draw-ways").flex_none().h_full().px(5).flex().items_center().rounded_r(6).border_l(1).border_color(t.border)
+    .text_color(isOpen ? t.foreground : t.muted).when(isOpen, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover).text_color(t.foreground))
+    .role("combo_box").cursor_pointer().tooltip("More ways to draw the chart")
+    .on_click((_e, cx) => onOpen(true, cx))
+    .child(svg(`${ICONS}/chevron-down.svg`).size(12));
+  const row = (way, index) => h_flex().id(`draw-way-${way.id}`).h(40).flex_none().px(8).gap(10).items_center().rounded(6).cursor_pointer()
+    .role("list_box_option").when(index === cursor, (el) => el.bg(t.selected).aria_active_descendant()).hover((s) => s.bg(t.hover))
+    .on_click((_e, cx) => onPick(way.id, cx))
+    .child(div().w(14).flex_none().flex().justify_center().text_color(t.muted)
+      .child(way.id === "update" ? div().text_size(14).child("↻") : svg(`${ICONS}/layers.svg`).size(13)))
+    .child(v_flex().flex_1().min_w(0).gap(2)
+      .child(div().truncate().text_size(12).text_color(t.foreground).child(way.label))
+      .child(div().truncate().text_size(11).text_color(t.dim).child(way.about)))
+    .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10.5).text_color(t.muted).child(way.key));
+  const menu = dropdownFrame(t, "draw-ways-menu", 260).track_focus(list)
+    .on_key_down((e, cx) => onKey(e, cx))
+    .on_mouse_down_out((_e, cx) => {
+      cx.stop_propagation();
+      onOpen(false, cx);
+    })
+    .children(DRAW_WAYS.map(row));
+  return Popup.new("draw-ways-list", trigger).h_full().anchor("top_right").when(isOpen, (el) => el.content(menu));
+}
+
+// Under the trail before the Chartroom's own chart is drawn again from scratch: what that asks of
+// the person's Claude, and a way to go on or not.
+export function againStrip({ t, words, onDraw, onCancel }) {
+  const action = (id, label, isSolid, tip, act) => div().id(id).flex_none().h(24).px(10).flex().items_center().rounded(6).text_size(12).cursor_pointer()
+    .when(isSolid, (el) => el.bg(t.solid).text_color(t.solid_foreground))
+    .when(!isSolid, (el) => el.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
+    .tooltip(tip).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => act(cx)).child(label);
+  // The buttons under the words, so the words keep the width at the panel's narrowest.
+  return h_flex().flex_none().px(14).py(9).gap(8).items_start().border_b(1).border_color(t.border).text_size(12)
+    .child(div().mt(5).size(7).flex_none().rounded_full().bg(t.accent))
+    .child(v_flex().flex_1().min_w(0).gap(2)
+      .child(div().font_medium().text_color(t.foreground).child(words.ask))
+      .child(div().text_size(11.5).line_height("16px").text_color(t.muted).child(words.detail))
+      .child(h_flex().mt(6).gap(6).items_center()
+        .child(action("draw-again-yes", "Draw again", true, "Your Claude draws the chart anew", onDraw))
+        .child(action("draw-again-no", "Not now", false, "Keep the chart as it is (esc)", onCancel))));
 }
 
 // Under the trail when the code moved on since the chart: how far, and a way to bring it up to date.
