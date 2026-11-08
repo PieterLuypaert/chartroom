@@ -185,6 +185,8 @@ export default class Chartroom extends View {
     cx.bind_keys(SEARCH_KEYS);
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
+    // Whether the click the chart hears now was a card's, which it then leaves to the card.
+    this.isCardClick = false;
     // The height of the heading over a wide view's chart, as last measured.
     this.headingHeight = null;
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
@@ -675,6 +677,7 @@ export default class Chartroom extends View {
   pressed(e) {
     this.drag = { x: e.position.x, y: e.position.y, pan: { ...this.pan } };
     this.didDrag = false;
+    this.isCardClick = false;
   }
 
   dragged(e, cx) {
@@ -947,6 +950,9 @@ export default class Chartroom extends View {
       return;
     }
     if (isOpening && card.isOpenable) return this.open(card, cx);
+    // A click on the card picked puts it down; the second click of a double-click picks it again,
+    // or opens it.
+    if (!isOpening && this.selected === card.id) return this.unpick(cx);
     if (this.selected !== card.id) this.light(cx);
     const isNew = this.selected !== card.id;
     this.selected = card.id;
@@ -954,6 +960,30 @@ export default class Chartroom extends View {
     // A card picked opens the details again, so what it is and its explanation show.
     if (isNew && this.detailsFolded) this.foldDetails(false, cx);
     cx.notify();
+  }
+
+  // A card's click on the chart, which the chart's own click then leaves alone.
+  pickOnChart(card, isOpening, cx) {
+    this.isCardClick = true;
+    this.pick(card, isOpening, cx);
+  }
+
+  // No card picked: the level's own details and answers, and its lines fading back.
+  unpick(cx) {
+    if (this.selected === null) return;
+    this.selected = null;
+    this.light(cx);
+    cx.notify();
+  }
+
+  // A click on the chart around the cards puts the card picked down. A card's click reaches the chart
+  // too, after the card heard it, and the end of a drag is no click.
+  clickedChart(cx) {
+    if (this.isCardClick) {
+      this.isCardClick = false;
+      return;
+    }
+    if (!this.didDrag) this.unpick(cx);
   }
 
   // Shows another level, and with it the card `picked` (or none), then does `after`. A level worked
@@ -1455,6 +1485,7 @@ export default class Chartroom extends View {
         .on_mouse_down("left", (e) => this.pressed(e))
         .on_mouse_move((e, cx) => this.dragged(e, cx))
         .on_mouse_up("left", (_e, cx) => this.released(cx))
+        .on_click((_e, cx) => this.clickedChart(cx))
         .on_hover((isHovered, cx) => !isHovered && this.released(cx))
         .child(v_flex().absolute().left(-this.pan.x).top(-this.pan.y)
           .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
@@ -1537,7 +1568,7 @@ export default class Chartroom extends View {
     const motion = { levelKey: `${this.levelCount}`, isEntering: this.isEntering, isLitEntering: this.isLitEntering, isMoving: this.isMoving };
     return v_flex()
       .when(Boolean(view.note), (el) => el.child(div().px(16).pt(8).text_size(11.5).text_color(t.dim).child(view.note)))
-      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), isInstant: this.isWheeling, onPick: (card, isOpening, cx) => this.pick(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
+      .child(chartView({ t, laid: view.laid, selected: this.selected, hovered: this.hovered, lighted: this.lighted(), isInstant: this.isWheeling, onPick: (card, isOpening, cx) => this.pickOnChart(card, isOpening, cx), onHover: (id, isHovered, cx) => this.hover(id, isHovered, cx), ...motion }));
   }
 
   // Over the chart in a wide view: what this level is, what it is called, and what it does.
