@@ -15,7 +15,7 @@ import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
-import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
+import { grabOf, hasRoomFor, isWorthShowing, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
@@ -694,12 +694,15 @@ export default class Chartroom extends View {
     return this.viewSize ?? { width: this.chartWidth(), height: this.size.height };
   }
 
-  // The minimap of the level shown, or null without ELK's layout or room for it.
+  // The minimap of the level shown, or null without ELK's layout, without room for it, or with the
+  // whole level in view, when it would tell nothing. While it is dragged it stays, so a drag that
+  // brings the whole level into view does not lose it under the pointer.
   minimap(view) {
     const visible = this.visible();
     if (!view?.laid?.lines || !hasRoomFor(visible)) return null;
     const top = this.isWide() ? this.headingNow() : 0;
-    return minimapOf(view.laid.cards, { view: visible, pan: this.pan, top });
+    const map = minimapOf(view.laid.cards, { view: visible, pan: this.pan, top });
+    return map && (this.minimapDrag || isWorthShowing(map)) ? map : null;
   }
 
   // A press on the minimap moves the view there, and held it drags the view along; a press on the
@@ -750,9 +753,10 @@ export default class Chartroom extends View {
     return this.headingHeight ?? HEADING_HEIGHT * this.zoomNow();
   }
 
-  // A card under the pointer lights its lines.
+  // A card under the pointer lights its lines, unless the pointer is on the minimap (one that went
+  // away under it no longer counts).
   hover(id, isHovered, cx) {
-    if (isHovered && this.isOnMinimap) return;
+    if (isHovered && this.isOnMinimap && this.minimap(this.memo)) return;
     const next = isHovered ? id : this.hovered === id ? null : this.hovered;
     if (next === this.hovered) return;
     this.hovered = next;

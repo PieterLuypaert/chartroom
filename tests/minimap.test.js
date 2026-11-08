@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { grabOf, hasRoomFor, MINIMAP, minimapOf, panAt } from "../mods/chartroom/minimap.js";
+import { grabOf, hasRoomFor, isWorthShowing, MINIMAP, minimapOf, panAt, shadeOf } from "../mods/chartroom/minimap.js";
 
 // Two cards whose box, padded, is 1000 by 300 from the chart's top-left corner.
 const WIDE = [
@@ -111,5 +111,49 @@ describe("hasRoomFor", () => {
     expect(hasRoomFor({ width: 900, height: 600 })).toBe(true);
     expect(hasRoomFor({ width: 300, height: 600 })).toBe(false);
     expect(hasRoomFor({ width: 900, height: 200 })).toBe(false);
+  });
+});
+
+describe("isWorthShowing", () => {
+  const shows = (view, pan) => isWorthShowing(minimapOf(WIDE, { view, pan }));
+
+  test("leaves the minimap out with the whole level in view, or all but a sliver of it", () => {
+    expect(shows({ width: 1000, height: 300 }, { x: 0, y: 0 })).toBe(false);
+    expect(shows({ width: 950, height: 290 }, { x: 0, y: 0 })).toBe(false);
+  });
+
+  test("shows it with only the top half of the level in view", () => {
+    expect(shows({ width: 1000, height: 150 }, { x: 0, y: 0 })).toBe(true);
+  });
+
+  test("shows it zoomed in on a corner", () => {
+    expect(shows({ width: 300, height: 100 }, { x: 700, y: 200 })).toBe(true);
+  });
+
+  test("measures the level, not the room round it or the minimap's least width", () => {
+    const tall = [{ id: "a", band: 1, x: 24, y: 24, w: 52, h: 952 }];
+    expect(isWorthShowing(minimapOf(tall, { view: { width: 100, height: 1000 }, pan: { x: 0, y: 0 } }))).toBe(false);
+    expect(isWorthShowing(minimapOf(tall, { view: { width: 100, height: 400 }, pan: { x: 0, y: 0 } }))).toBe(true);
+  });
+});
+
+describe("shadeOf", () => {
+  test("shades the minimap round the part in view: above, below, and either side of it", () => {
+    const map = minimapOf(WIDE, { view: VIEW, pan: { x: 250, y: 75 } });
+    const boxes = shadeOf(map);
+    expect(boxes).toHaveLength(4);
+    [{ x: 0, y: 0, w: 180, h: 13.5 }, { x: 0, y: 40.5, w: 180, h: 13.5 }, { x: 0, y: 13.5, w: 45, h: 27 }, { x: 135, y: 13.5, w: 45, h: 27 }].forEach((box, index) => expectBox(boxes[index], box));
+  });
+
+  test("leaves out the sides the view reaches, when it is dragged past an edge", () => {
+    const boxes = shadeOf(minimapOf(WIDE, { view: VIEW, pan: { x: -200, y: 0 } }));
+    expect(boxes).toHaveLength(2);
+    expectBox(boxes[0], { x: 0, y: 27, w: 180, h: 27 });
+    expectBox(boxes[1], { x: 54, y: 0, w: 126, h: 27 });
+  });
+
+  test("shades all of it with the view off the level", () => {
+    const map = minimapOf(WIDE, { view: VIEW, pan: { x: 5000, y: 5000 } });
+    expect(shadeOf(map)).toEqual([{ x: 0, y: 0, w: map.width, h: map.height }]);
   });
 });

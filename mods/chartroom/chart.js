@@ -3,6 +3,7 @@
 import { div, svg, PathBuilder } from "gpui-kit";
 import { h_flex, Input, Popup, Scrollbar, TextView, v_flex, v_virtual_list } from "gpui-base";
 import { MODELS, modelLabel } from "./models.js";
+import { shadeOf } from "./minimap.js";
 
 // Herdr's own icons: the app draws no asset reached through the link install.sh makes.
 const ICONS = "mods/workspace-chrome";
@@ -232,7 +233,9 @@ function plainCard(t, box, isSelected, onPick, onHover) {
 
 // The level small in the chart's bottom-left corner (minimap.js places it): each card a block, the
 // cards inside the part stronger than those outside it, the picked card and those an answer is about
-// in the accent, and a frame round the part in view. A press on it moves the view there.
+// in the accent. What is out of view is shaded, by an opacity so it works whatever form the theme's
+// colors take, and the part in view keeps a thin, soft edge: seeing most of the level, the minimap
+// stays quiet. A press on it moves the view there.
 export function minimapView({ t, map, selected, lighted = new Set(), isDragging, onPress, onHover }) {
   const ground = (card) => (card.id === selected || lighted.has(card.id) ? t.accent : card.band === 1 ? t.dim : t.border);
   const { viewport } = map;
@@ -243,8 +246,9 @@ export function minimapView({ t, map, selected, lighted = new Set(), isDragging,
     .on_mouse_down("left", (e, cx) => onPress(e, cx))
     .on_hover((isHovered, cx) => onHover(isHovered, cx))
     .children(map.cards.map((card) => div().absolute().left(card.x).top(card.y).w(card.w).h(card.h).rounded(1.5).bg(ground(card))))
+    .children(shadeOf(map).map((box) => div().absolute().left(box.x).top(box.y).w(box.w).h(box.h).bg(t.background).opacity(0.55)))
     .when(viewport.w > 0 && viewport.h > 0, (el) => el.child(div().absolute().left(viewport.x).top(viewport.y).w(viewport.w).h(viewport.h)
-      .rounded(3).border_1().border_color(t.accent).bg(thin(t.accent, "18"))));
+      .rounded(3).border_1().border_color(t.accent).opacity(0.4)));
 }
 
 // Beside or under the chart: the card picked, or the level itself while none is, the answers to

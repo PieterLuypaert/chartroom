@@ -5,14 +5,17 @@
 // top-left corner.
 
 // At most this big, keeping the level's proportions, never thinner than `minSide`, with `pad` of
-// the chart's points round the cards. Shown only on a chart area at least `minView` big.
-export const MINIMAP = { maxWidth: 180, maxHeight: 120, minSide: 36, pad: 24, minCard: 2, minView: { width: 360, height: 260 } };
+// the chart's points round the cards. Shown only on a chart area at least `minView` big, and only
+// while the view shows less than `shownEnough` of the level across or down.
+export const MINIMAP = { maxWidth: 180, maxHeight: 120, minSide: 36, pad: 24, minCard: 2, minView: { width: 360, height: 260 }, shownEnough: 0.9 };
 
 export const hasRoomFor = (view) => view.width >= MINIMAP.minView.width && view.height >= MINIMAP.minView.height;
 
 // The level's cards and the view on it, small: each card's place, the frame round what is in view
-// (cut at the minimap's edges), and the scale and origin that put the chart on the minimap. `top`
-// is how far the cards sit below the top of what moves, `view` the size of the chart's area.
+// (cut at the minimap's edges), the scale and origin that put the chart on the minimap, and how
+// much of the level the view shows across and down (`shown`, measured on the cards, not the room
+// round them). `top` is how far the cards sit below the top of what moves, `view` the size of the
+// chart's area.
 export function minimapOf(cards, { view, pan, top = 0 }) {
   if (!cards.length) return null;
   const x0 = Math.min(...cards.map((card) => card.x)) - MINIMAP.pad;
@@ -32,7 +35,28 @@ export function minimapOf(cards, { view, pan, top = 0 }) {
     h: Math.max(MINIMAP.minCard, card.h * scale),
   });
   const inView = { x: origin.x + pan.x * scale, y: origin.y + pan.y * scale, w: view.width * scale, h: view.height * scale };
-  return { width, height, scale, origin, cards: cards.map(small), inView, viewport: cut(inView, width, height) };
+  const pad = MINIMAP.pad;
+  const shown = { across: share(x0 + pad, x1 - pad, pan.x, view.width), down: share(y0 + pad, y1 - pad, pan.y, view.height) };
+  return { width, height, scale, origin, cards: cards.map(small), inView, viewport: cut(inView, width, height), shown };
+}
+
+// How much of the stretch from `from` to `to` the stretch from `start`, `size` long, covers.
+const share = (from, to, start, size) => Math.max(0, Math.min(to, start + size) - Math.max(from, start)) / Math.max(1, to - from);
+
+// Whether the minimap tells something: not while the view shows all of the level, or nearly.
+export const isWorthShowing = (map) => map.shown.across < MINIMAP.shownEnough || map.shown.down < MINIMAP.shownEnough;
+
+// What of the minimap is out of view, to shade: above, below, left and right of the part in view,
+// the sides it reaches left out; all of it with the view off the level.
+export function shadeOf(map) {
+  const { width, height, viewport: at } = map;
+  if (at.w <= 0 || at.h <= 0) return [{ x: 0, y: 0, w: width, h: height }];
+  return [
+    { x: 0, y: 0, w: width, h: at.y },
+    { x: 0, y: at.y + at.h, w: width, h: height - at.y - at.h },
+    { x: 0, y: at.y, w: at.x, h: at.h },
+    { x: at.x + at.w, y: at.y, w: width - at.x - at.w, h: at.h },
+  ].filter((box) => box.w > 0.01 && box.h > 0.01);
 }
 
 // A box cut to the minimap's edges.
