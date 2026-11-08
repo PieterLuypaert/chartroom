@@ -7,6 +7,21 @@ import { aliasesOf, cargoCrateOf, endpointFor, packageOf, psr4Of, resolverFor, w
 import { connect, scan } from "../draw/scan.js";
 
 describe("extract", () => {
+  test("reads the titles of the tests a file holds, in each language, at most 60", () => {
+    const js = 'describe("tides", () => {\n  it("reads a port", () => {});\n  test.skip(\'skips a storm\', () => {});\n  const ok = /x/.test("not a test");\n  it(`handles ${kind}`, () => {});\n});\n';
+    expect(extract("tides.test.ts", js).tests).toEqual(["tides", "reads a port", "skips a storm", "handles ${kind}"]);
+    const python = "def test_reads_port():\n    pass\n\nasync def test_waits():\n    pass\n\nclass TestTides:\n    def test_inside(self):\n        pass\n\ndef helper():\n    pass\n";
+    expect(extract("test_tides.py", python).tests).toEqual(["test_reads_port", "test_waits", "TestTides", "test_inside"]);
+    expect(extract("tides_test.go", "package tides\n\nfunc TestReadsPort(t *testing.T) {}\n\nfunc helper() {}\n").tests).toEqual(["TestReadsPort"]);
+    const java = "class TidesTest {\n  @Test\n  void readsPort() {}\n\n  @Test\n  @DisplayName(\"storm\")\n  public void ignoresStorm() {}\n\n  void helper() {}\n}\n";
+    expect(extract("TidesTest.java", java).tests).toEqual(["readsPort", "ignoresStorm"]);
+    expect(extract("TidesTest.kt", "class TidesTest {\n    @Test\n    fun `reads a port`() {}\n}\n").tests).toEqual(["reads a port"]);
+    expect(extract("tides.rs", "#[test]\nfn reads_port() {}\n\n#[tokio::test]\nasync fn waits() {}\n\nfn helper() {}\n").tests).toEqual(["reads_port", "waits"]);
+    const many = Array.from({ length: 70 }, (_, index) => `it("case ${index}", () => {});`).join("\n");
+    expect(extract("many.test.js", many).tests).toHaveLength(60);
+    expect(extract("plain.ts", "export const x = 1;\n").tests).toEqual([]);
+  });
+
   test("numbers the lines of a big file's requests and routes as fast as a small one's", () => {
     const text = Array.from({ length: 60000 }, (_, index) => `export const get${index} = () => fetch("/api/tides/${index}");`).join("\n");
     const started = performance.now();

@@ -55,16 +55,24 @@ export function describePrompt({ project, part, digests }) {
     part ? `These files are in its part "${part.label}": ${part.summary}` : "These files are in no part yet.",
     "",
     "For every file below, give a short name (two to five words, as the app's owner would say it: \"Checkout page\", \"Card payments\") and one sentence on what it does for the app and the people who use it, in plain everyday words. For every endpoint, the same: what asking it does. Use the path or key exactly as given, and answer for all of them.",
+    "Say only what the code and the facts shown say it does: all it defines and every test it holds are listed, so let the sentence cover the file as a whole, not only its first lines. Leave out what you could only guess from a file's name or folder.",
     "",
     ...digests,
   ].join("\n");
 }
 
-// What the scan saw in a file, and its first lines past the imports.
+// At most `most` of a list, joined, and how many more there are.
+const upTo = (list, most, joiner) => list.slice(0, most).join(joiner) + (list.length > most ? ` and ${list.length - most} more` : "");
+const MAX_NAMES = 60;
+const MAX_TITLE = 100;
+
+// What the scan saw in a file, and its first lines past the imports: every name it defines and every
+// test it holds (up to 60 each), so a big file is described by all it holds.
 export function digestOf(file, { uses, usedBy, routes, head }) {
   const lines = [`FILE ${file.path} (${file.loc} lines)`];
   if (file.doc) lines.push(`  comment: ${file.doc}`);
-  if (file.defs.length) lines.push(`  defines: ${file.defs.slice(0, 12).join(", ")}`);
+  if (file.defs.length) lines.push(`  defines: ${upTo(file.defs, MAX_NAMES, ", ")}`);
+  if (file.tests?.length) lines.push(`  tests: ${upTo(file.tests.map((title) => title.slice(0, MAX_TITLE)), MAX_NAMES, "; ")}`);
   if (uses.length) lines.push(`  uses: ${[...new Set(uses.map(baseName))].slice(0, 10).join(", ")}`);
   if (usedBy) lines.push(`  used by ${usedBy} file${usedBy === 1 ? "" : "s"}`);
   for (const route of routes) lines.push(`  ENDPOINT ${routeKey(route)}`);

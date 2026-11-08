@@ -41,7 +41,32 @@ export function extract(path, text) {
   const lang = langOf(path);
   const by = { js: extractJs, python: extractPython, go: extractGo, php: extractPhp, jvm: extractJvm, rust: extractRust }[lang];
   const found = by ? by(path, text) : { imports: [], defs: [], routes: [], requests: [] };
-  return { lang, doc: docOf(text), prefix: "", mounts: [], ...found };
+  return { lang, doc: docOf(text), prefix: "", mounts: [], ...found, tests: testsOf(lang, text) };
+}
+
+// The titles of the tests a file holds, in order and at most MAX_TESTS, so a test file is described
+// by all it checks rather than by its first lines: JS/TS describe, it and test with their first
+// string (not a call such as /x/.test(…)); Python test_ functions and Test classes; Go Test
+// functions; Java and Kotlin methods under @Test; Rust functions under #[test].
+const MAX_TESTS = 60;
+const TESTS = {
+  js: /(?<![.\w$])(?:describe|it|test)(?:\.(?:only|skip|todo|concurrent))?\s*\(\s*(['"`])(.*?)\1/g,
+  python: /^[ \t]*(?:async\s+)?def\s+(test_\w+)|^[ \t]*class\s+(Test\w*)/gm,
+  go: /^func\s+(Test\w+)\s*\(/gm,
+  jvm: /@Test\b[^\n]*\n(?:[ \t]*@[^\n]*\n)*[ \t]*(?:(?:public|private|protected|internal|open|override|suspend|final)\s+)*(?:fun|void)\s+(`[^`\n]+`|\w+)/g,
+  rust: /#\[(?:tokio::)?test\][^\n]*\n(?:[ \t]*#\[[^\]\n]*\][ \t]*\n)*[ \t]*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/g,
+};
+
+function testsOf(lang, text) {
+  const pattern = TESTS[lang];
+  if (!pattern) return [];
+  const titles = [];
+  for (const m of text.matchAll(pattern)) {
+    const title = (lang === "js" ? m[2] : m[1] ?? m[2]).replace(/^`|`$/g, "").trim();
+    if (title && !titles.includes(title)) titles.push(title);
+    if (titles.length === MAX_TESTS) break;
+  }
+  return titles;
 }
 
 // The comment a file opens with, as one short line.
