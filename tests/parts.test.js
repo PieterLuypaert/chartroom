@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { assign, checkParts, globToRegExp, treeOf } from "../draw/parts.js";
-import { headOf } from "../draw/describe.js";
+import { describePrompt, digestOf, headOf } from "../draw/describe.js";
 
 describe("parts", () => {
   test("puts each file in the deepest part that claims it", () => {
@@ -59,5 +59,29 @@ describe("parts", () => {
 describe("headOf", () => {
   test("keeps a file's first lines past its imports", () => {
     expect(headOf('import a from "a";\n\nexport function go() {\n  return a;\n}\n')).toEqual(["export function go() {", "  return a;", "}"]);
+  });
+});
+
+describe("digestOf", () => {
+  const file = (facts) => ({ path: "src/tides.test.ts", loc: 120, doc: "", defs: [], tests: [], ...facts });
+  const facts = { uses: [], usedBy: 0, routes: [], head: [] };
+
+  test("lists every name a file defines, up to 60, and says how many more", () => {
+    const defs = Array.from({ length: 70 }, (_, index) => `name${index}`);
+    const line = digestOf(file({ defs }), facts).split("\n").find((one) => one.includes("defines:"));
+    expect(line).toBe(`  defines: ${defs.slice(0, 60).join(", ")} and 10 more`);
+  });
+
+  test("lists the tests a file holds by their titles", () => {
+    const digest = digestOf(file({ tests: ["reads a port", "skips a storm, quietly"] }), facts);
+    expect(digest).toContain("  tests: reads a port; skips a storm, quietly");
+  });
+});
+
+describe("describePrompt", () => {
+  test("asks Claude to say only what the code and the facts shown say a file does", () => {
+    const prompt = describePrompt({ project: { name: "Tide Tables", summary: "Tides." }, part: null, digests: [] });
+    expect(prompt).toContain("Say only what the code and the facts shown say it does");
+    expect(prompt).toContain("or from the name of a parameter or option: one counts only where the code shown uses it");
   });
 });

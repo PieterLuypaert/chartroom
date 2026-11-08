@@ -51,6 +51,7 @@ Every code file is charted, however large the project.
 ```sh
 bun test                          # unit and end-to-end tests, no Claude or Herdr needed
 herdr-app check mods/chartroom    # load the mod once
+bun scripts/check-descriptions.js --compare <folder>   # how true a chart's descriptions are, judged by Opus (uses your Claude)
 bun draw/draw.js <folder>         # draw a chart from the command line
 ```
 

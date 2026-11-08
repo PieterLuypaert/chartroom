@@ -288,7 +288,10 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   import leads to one only where no code file answers it, so `../types` reaches `types/index.d.ts`, while
   `./thing` with `thing.js` beside `thing.d.ts` reaches `thing.js`), **parts** (one `claude -p` with Read,
   Grep, Glob), **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or
-  `$CHARTROOM_DESCRIBE_MODEL`),
+  `$CHARTROOM_DESCRIBE_MODEL`; each file as a digest: its first comment, every name it defines and every test
+  it holds by title, up to 60 each, what it uses, how many use it, its endpoints, and its first 24 lines
+  past the imports; the prompt says to describe the file as a whole, only as far as the code and the facts
+  shown say, and to leave out what a file's name, folder, or a parameter's name only suggests),
   **build**. It writes `.chartroom/{chart,state,progress}.json`, `pid`, `draw.log` and a `.gitignore` of `*`.
   `claude.js` runs `claude -p --output-format json --no-session-persistence --strict-mcp-config
   --setting-sources "" --tools … --json-schema …`. `ask.js <folder> <id> <json>` writes
@@ -347,6 +350,13 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   in a task, then laid out by ELK together; a later run, another chart or another level shown stops it.
   `levelOf` keeps each level per chart, so going to one laid out ahead does not work it out again. Without
   `elkjs`, every level gets the plain layout, with a note saying why.
+- How true the descriptions are is measured by hand with `bun scripts/check-descriptions.js [--sample 10]
+  [--compare] <folder>...`: a fixed sample of each folder's files unchanged since their drawing is described
+  again as a drawing does now, and `claude-opus-5-5` judges each against the whole file (right, partly, wrong,
+  with a reason); `--compare` judges the chart's own descriptions of the same files too. It runs on the
+  person's Claude, so no test runs it. On 50 files of five projects, descriptions from the first 24 lines and
+  12 names came out 86–88% right, 10–12% partly and 2% wrong; with the digest above, 92–94% right, 4–8% partly
+  and 0–2% wrong over two runs. What is left as partly is mostly a big file one sentence cannot cover.
 - Polls: the chart is read again every 15s (`READ_MS`) while remote, chartless, drawing or failed; the
   changed check every 30s; answers and explanations every 1.5s while they run. Limits: none on how many code
   files a scan reads or how big they are (a file that is not text is left out); a 15-minute timeout and one
