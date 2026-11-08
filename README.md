@@ -2,15 +2,15 @@
 
 [![Tests](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml/badge.svg)](https://github.com/PieterLuypaert/chartroom/actions/workflows/test.yml)
 
-Chartroom is an add-on for the [Herdr app](https://herdr.dev). It draws an interactive map of a codebase: the app's parts appear as cards, with lines between them showing what uses what, and you can open each part to see what's inside. Your own Claude names the parts and describes every file, so developers can find their way around a project, search it, and ask questions about any piece of it.
+Chartroom is an add-on for the [Herdr app](https://herdr.dev) that draws an interactive map of a codebase. The app's parts show up as cards, with lines showing what uses what, and you can open each part to see what's inside. The developer's own Claude names the parts and describes every file, so people can find their way around a project, search it, see what a change would affect, and ask questions about any piece of it.
 
-![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses and what uses it](docs/panel-whole-app.png)
+![The Chartroom's own chart: the whole app, the part Chart drawing picked with its lines lit, and beside the chart what it does, what it uses (git and Claude Code among them) and what uses it](docs/chartroom-whole-app.png)
 
 **Impact** shows what a change to a part or file can reach. Pick a card and press `i`: every card that depends on it lights up, marked with how many steps away it is, and the rest dims. The details count the parts and files, group them by step, and show the chain back to the card picked. **Uses** turns the question around, to what the card relies on, and **Direct only** keeps what is one step away. It comes straight from the imports and requests in the code, without Claude, so it is instant.
 
-Here, the three parts that use Chart drawing directly:
+Here, everything that depends on Chart drawing: the panel and the Description checker use it directly, the Herdr app through the panel, and six of the tests:
 
-![The impact of Chart drawing, direct only: Tests, Description checker and Chart panel in Herdr lit one step away, the rest dimmed, and the Impact section in the details](docs/panel-impact.png)
+![The impact of Chart drawing, all steps: Chart panel in Herdr, Description checker and Tests lit one step away, the Herdr app two, the rest dimmed, and the Impact section in the details: 4 parts and 11 files depend on it](docs/chartroom-impact.png)
 
 Go inside a part to see its files:
 
