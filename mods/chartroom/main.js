@@ -11,7 +11,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
-import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
+import { detailsSize, elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
@@ -40,7 +40,6 @@ const WATCHED = /\/((chart|graph|progress)\.json|pid)$/;
 const MAX_VIEWS = 8;
 // From this wide on, the details sit to the right of the chart instead of under it.
 const WIDE = 900;
-const DETAILS_WIDTH = 340;
 // How long a new level or a card's lines are drawn see-through before they fade in, and how long
 // the lines stay aside while the cards glide to new places (chart.js's GLIDE, and a little more).
 const ENTER_MS = 30;
@@ -63,6 +62,9 @@ const CHANGED_MS = 30000;
 
 // The details folded away (d), remembered.
 const FOLDED_SETTING = "detailsFolded";
+// The details' width and height dragged to, kept per copy of the panel.
+const DETAILS_WIDTH_SETTING = "detailsWidth";
+const DETAILS_HEIGHT_SETTING = "detailsHeight";
 // The model a question is asked on, kept per copy (none: the person's Claude Code default).
 const ASK_MODEL = "askModel";
 // While a question is being answered, its answer is looked for this often.
@@ -151,6 +153,11 @@ export default class Chartroom extends View {
     // Explaining a card picked: whether it is on (e), the picked card's explanation, and which ask is current.
     Object.assign(this, { explanation: null, explainCount: 0, explaining: null });
     this.detailsFolded = stored(FOLDED_SETTING, false) === true;
+    // The details' size dragged to (null: the default), a drag of their edge underway, and whether
+    // the pointer is on that edge.
+    const size = (key) => (typeof stored(key, null) === "number" ? stored(key, null) : null);
+    this.detailsDragged = { width: size(DETAILS_WIDTH_SETTING), height: size(DETAILS_HEIGHT_SETTING) };
+    Object.assign(this, { resizing: null, isOnEdge: false });
     this.question = InputState.new({ placeholder: "What does it do? What breaks if it goes?" });
     this.question.on("submit", (_e, cx) => this.ask(cx));
     this.question.on("focus", (_e, cx) => {
@@ -918,7 +925,7 @@ export default class Chartroom extends View {
   }
 
   chartWidth() {
-    return Math.round(this.isWide() && !this.detailsFolded ? this.size.width - DETAILS_WIDTH : this.size.width);
+    return Math.round(this.isWide() && !this.detailsFolded ? this.size.width - this.detailsShown(true, false) : this.size.width);
   }
 
   // The details folded away, so the chart gets the whole width, or back; the cards glide there.
@@ -1272,6 +1279,9 @@ export default class Chartroom extends View {
       .on_size_change((size, cx) => this.resized(size, cx))
       .on_key_down((e, cx) => this.onKey(e, cx))
       .on_mouse_down("left", () => this.handle.focus())
+      .on_mouse_move((e, cx) => this.resizeMoved(e, cx))
+      .on_mouse_up("left", (_e, cx) => this.resizeEnded(cx))
+      .on_hover((isHovered, cx) => !isHovered && this.resizeEnded(cx))
       .child(this.header(t, view))
       .when(Boolean(view), (el) => el.child(this.trail(t, view.level)))
       .when(Boolean(view) && this.isDrawing, (el) => el.child(updateStrip({ t, progress: this.progress, onStop: (cx) => this.stop(cx) })))
@@ -1449,8 +1459,72 @@ export default class Chartroom extends View {
         .child(v_flex().absolute().left(-this.pan.x).top(-this.pan.y)
           .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
           .child(this.canvas(t, view))))
-      .when(isWide && !this.detailsFolded, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
-      .when(!isWide && !this.detailsFolded, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
+      .when(isWide && !this.detailsFolded, (el) => el.child(div().flex_none().relative().w(this.detailsShown(true)).h_full().border_l(1).border_color(t.border)
+        .child(aside).child(this.edge(t, true))))
+      .when(!isWide && !this.detailsFolded, (el) => el.child(div().flex_none().relative().h(this.detailsShown(false)).border_t(1).border_color(t.border)
+        .child(aside).child(this.edge(t, false))));
+  }
+
+  // The details' width (in a wide view) or height: the one being dragged to while a drag of their
+  // edge is underway (`isLive`), else the one kept. The chart is laid out by the kept one, so it is
+  // laid out again once per drag, when it ends.
+  detailsShown(isWide, isLive = true) {
+    const live = isLive && this.resizing?.isWide === isWide ? this.resizing.size : null;
+    return detailsSize({ isWide, panel: this.size, dragged: live ?? this.detailsDragged[isWide ? "width" : "height"] });
+  }
+
+  // The details' edge to drag: a 6px strip over their border, its 1px line lit while pointed at or
+  // dragged. A double-click puts the default size back.
+  edge(t, isWide) {
+    const isLit = this.isOnEdge || Boolean(this.resizing);
+    const line = isWide ? div().absolute().top(0).bottom(0).left(2).w(1) : div().absolute().left(0).right(0).top(2).h(1);
+    return div().id("details-edge").absolute()
+      .when(isWide, (el) => el.top(0).bottom(0).left(-3).w(6).cursor_col_resize())
+      .when(!isWide, (el) => el.left(0).right(0).top(-3).h(6).cursor_row_resize())
+      .on_hover((isHovered, cx) => {
+        this.isOnEdge = isHovered;
+        cx.notify();
+      })
+      .on_mouse_down("left", (e, cx) => this.resizeStarted(e, isWide, cx))
+      .when(isLit, (el) => el.child(line.bg(t.accent)));
+  }
+
+  resizeStarted(e, isWide, cx) {
+    cx.stop_propagation();
+    const key = isWide ? "width" : "height";
+    if (e.click_count === 2) {
+      this.resizing = null;
+      this.keepDetailsSize(key, null, cx);
+      return;
+    }
+    this.resizing = { isWide, from: isWide ? e.position.x : e.position.y, start: this.detailsShown(isWide, false), size: this.detailsShown(isWide, false) };
+    cx.notify();
+  }
+
+  // The edge follows the pointer: dragged left (or up), the details grow.
+  resizeMoved(e, cx) {
+    if (!this.resizing) return;
+    const { isWide, from, start } = this.resizing;
+    const zoom = Number(settings()?.zoom) || 1;
+    const by = ((isWide ? e.position.x : e.position.y) - from) / zoom;
+    this.resizing.size = detailsSize({ isWide, panel: this.size, dragged: start - by });
+    cx.notify();
+  }
+
+  resizeEnded(cx) {
+    if (!this.resizing) return;
+    const { isWide, size } = this.resizing;
+    this.resizing = null;
+    this.keepDetailsSize(isWide ? "width" : "height", size, cx);
+  }
+
+  // Keeps the details' size (null: the default) for this copy of the panel; the chart, laid out by
+  // it, glides to its new width.
+  keepDetailsSize(key, size, cx) {
+    this.detailsDragged[key] = size;
+    store(key === "width" ? DETAILS_WIDTH_SETTING : DETAILS_HEIGHT_SETTING, size);
+    this.moving(cx);
+    cx.notify();
   }
 
   // The level's cards and lines, or while ELK lays it out a word that it does, or the plain layout

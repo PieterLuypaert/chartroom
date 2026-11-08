@@ -281,3 +281,15 @@ export function headingType(zoom = 1, isLow = false) {
     summaryMax: isLow ? at(34) : null,
   };
 }
+
+// The details' size: their width beside the chart in a wide view, their height under it in a narrow
+// one. The size dragged to, kept between the least and a share of the panel (half its width, 60% of
+// its height), so a size dragged on a bigger panel fits the one it is on now; none dragged yet, 340
+// wide, or 36% of the height between 150 and 300.
+export const DETAILS = { width: 340, minWidth: 260, widthShare: 0.5, minHeight: 120, heightShare: 0.6 };
+
+export function detailsSize({ isWide, panel, dragged = null }) {
+  const [size, least, share] = isWide ? [panel.width, DETAILS.minWidth, DETAILS.widthShare] : [panel.height, DETAILS.minHeight, DETAILS.heightShare];
+  const wanted = dragged ?? (isWide ? DETAILS.width : Math.min(300, Math.max(150, panel.height * 0.36)));
+  return Math.round(Math.min(Math.max(least, size * share), Math.max(least, wanted)));
+}
