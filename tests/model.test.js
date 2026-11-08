@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chartText } from "../draw/build.js";
-import { cardIdOn, detailsOf, impactInSlices, impactOf, impactOn, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChart, readChartInSlices, trailOf } from "../mods/chartroom/model.js";
+import { cardIdOn, detailsOf, impactChain, impactInSlices, impactOf, impactOn, impactSection, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChart, readChartInSlices, trailOf } from "../mods/chartroom/model.js";
 
 const text = readFileSync(new URL("./tide-tables.json", import.meta.url), "utf8");
 const chart = readChart(text);
@@ -334,17 +334,18 @@ describe("impactOf", () => {
 });
 
 describe("impactOn", () => {
+  const placed = (on) => Object.fromEntries([...on.cards].map(([id, one]) => [id, { steps: one.steps, files: one.files }]));
   test("shows each affected card on a level at its fewest steps, with its files, and the source's cards apart", () => {
     const on = impactOn(chart, levelOf(chart, "site"), impactOf(chart, "f:site/src/kit/client.ts"));
     expect([...on.sources]).toEqual(["n:site.kit"]);
-    expect(Object.fromEntries(on.cards)).toEqual({ "n:site.pages": { steps: 1, files: 2 } });
+    expect(placed(on)).toEqual({ "n:site.pages": { steps: 1, files: 2 } });
     expect(on.counts).toEqual({ parts: 1, files: 2 });
   });
 
   test("lights the lines from each affected card towards the source", () => {
     const on = impactOn(chart, levelOf(chart, null), impactOf(chart, "f:api/src/store/db.ts"));
     expect([...on.sources]).toEqual(["n:api"]);
-    expect(Object.fromEntries(on.cards)).toEqual({ "n:site": { steps: 2, files: 3 }, "n:jobs": { steps: 2, files: 1 } });
+    expect(placed(on)).toEqual({ "n:site": { steps: 2, files: 3 }, "n:jobs": { steps: 2, files: 1 } });
     expect([...on.lines].sort()).toEqual(["n:jobs>n:api", "n:site>n:api"]);
     expect(on.counts).toEqual({ parts: 5, files: 7 });
   });
@@ -352,11 +353,82 @@ describe("impactOn", () => {
   test("keeps the affected files with no card on the level apart, by the part they are in", () => {
     const level = levelOf(chart, "site.pages");
     const on = impactOn(chart, level, impactOf(chart, "f:api/src/store/db.ts"));
-    expect(Object.fromEntries(on.cards)).toEqual({ "f:site/src/pages/home.tsx": { steps: 3, files: 1 }, "f:site/src/pages/port.tsx": { steps: 3, files: 1 }, "n:site.kit": { steps: 2, files: 1 } });
-    expect(on.elsewhere).toEqual([
+    expect(placed(on)).toEqual({ "f:site/src/pages/home.tsx": { steps: 3, files: 1 }, "f:site/src/pages/port.tsx": { steps: 3, files: 1 }, "n:site.kit": { steps: 2, files: 1 } });
+    expect(on.elsewhere.map(({ part, steps, files }) => ({ part, steps, files }))).toEqual([
       { part: "api.routes", steps: 1, files: 2 },
       { part: "api", steps: 2, files: 1 },
       { part: "jobs", steps: 2, files: 1 },
     ]);
+  });
+});
+
+describe("impactChain", () => {
+  test("names the shortest chain from an affected file back to the source", () => {
+    const impact = impactOf(chart, "f:api/src/store/db.ts");
+    expect(impactChain(chart, impact, "f:site/src/pages/home.tsx")).toEqual(["Home page", "Server client", "Tide times", "Database client"]);
+  });
+});
+
+describe("impactOn with only the direct steps", () => {
+  test("keeps only what is one step away: cards, lines, files and counts", () => {
+    const on = impactOn(chart, levelOf(chart, "api"), impactOf(chart, "f:api/src/store/db.ts"), { steps: 1 });
+    expect([...on.cards].map(([id, one]) => [id, one.steps, one.files])).toEqual([["n:api.routes", 1, 2]]);
+    expect([...on.lines]).toEqual(["n:api.routes>n:api.store"]);
+    expect(on.counts).toEqual({ parts: 1, files: 2 });
+  });
+});
+
+describe("impactSection", () => {
+  const rows = (section) => section.groups.map((group) => [group.label, group.rows.map((row) => [row.label, row.files, row.carries ?? row.through])]);
+
+  test("groups what depends on the source by its steps, each with what carries it or the card it comes through", () => {
+    const section = impactSection(chart, levelOf(chart, "api"), impactOf(chart, "f:api/src/store/db.ts"));
+    expect(section.title).toBe("Impact of Database client");
+    expect(section.counts).toEqual({ parts: 5, files: 7 });
+    expect(rows(section)).toEqual([
+      ["Directly", [["Requests", 2, ["db"]]]],
+      ["Through one more", [["Website", 3, "Requests"], ["Jobs", 1, "Requests"], ["Server start", 1, "Requests"]]],
+    ]);
+    expect(section.elsewhere).toEqual([]);
+    expect(section.tests).toBeNull();
+  });
+
+  test("names an endpoint as what carries a request, and gives each row its chain", () => {
+    const section = impactSection(chart, levelOf(chart, null), impactOf(chart, "f:api/src/routes/tides.ts"));
+    const direct = section.groups[0].rows;
+    expect(direct.map((row) => [row.label, row.carries])).toEqual([["Website", ["GET /tides/:port"]], ["Jobs", ["GET /tides/:port"]]]);
+    expect(direct[0].chain).toEqual(["Server client", "Tide times"]);
+  });
+
+  test("lists what has no card on the level by where it is", () => {
+    const section = impactSection(chart, levelOf(chart, "site.pages"), impactOf(chart, "f:api/src/store/db.ts"));
+    expect(section.elsewhere.map((one) => [one.where, one.steps, one.files])).toEqual([["Server › Requests", 1, 2], ["Server", 2, 1], ["Jobs", 2, 1]]);
+  });
+
+  test("keeps only the direct step with directOnly", () => {
+    const section = impactSection(chart, levelOf(chart, "api"), impactOf(chart, "f:api/src/store/db.ts"), { directOnly: true });
+    expect(rows(section)).toEqual([["Directly", [["Requests", 2, ["db"]]]]]);
+    expect(section.counts).toEqual({ parts: 1, files: 2 });
+  });
+
+  test("turned round with uses, says what the source relies on, through the card one step nearer", () => {
+    const section = impactSection(chart, levelOf(chart, null), impactOf(chart, "f:site/src/pages/home.tsx", { direction: "uses" }));
+    expect(section.title).toBe("What Home page relies on");
+    expect(rows(section)).toEqual([
+      ["Through one more", [["Server", 3, "Server client"]]],
+      ["Through 3 more", [["Database", 0, "Server"]]],
+    ]);
+  });
+
+  test("puts the tests apart, out of the groups", () => {
+    const tested = readChart(JSON.stringify({
+      schema: "chartroom/chart@1",
+      nodes: [{ id: "app", parent: null, label: "App", kind: "feature" }, { id: "checks", parent: null, label: "Checks", kind: "test" }, { id: "web", parent: null, label: "Web", kind: "ui" }],
+      files: [{ p: "app/a.ts", n: "app" }, { p: "checks/a.test.ts", n: "checks" }, { p: "web/page.ts", n: "web" }],
+      links: [{ a: "f:checks/a.test.ts", b: "f:app/a.ts", k: "import", w: 1, labels: ["a"] }, { a: "f:web/page.ts", b: "f:app/a.ts", k: "import", w: 1, labels: ["a"] }],
+    }));
+    const section = impactSection(tested, levelOf(tested, null), impactOf(tested, "f:app/a.ts"));
+    expect(rows(section)).toEqual([["Directly", [["Web", 1, ["a"]]]]]);
+    expect(section.tests).toEqual({ parts: 1, files: 1 });
   });
 });

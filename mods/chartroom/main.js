@@ -10,7 +10,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui-base";
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
-import { cardIdOn, detailsOf, impactInSlices, impactOn, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
+import { cardIdOn, detailsOf, impactChain, impactInSlices, impactOn, impactSection, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
 import { detailsSize, elkLevel, fromElk, headingType, layOut } from "./layout.js";
 import { chartView, detailsView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
@@ -67,6 +67,9 @@ const FOLDED_SETTING = "detailsFolded";
 // The details' width and height dragged to, kept per copy of the panel.
 const DETAILS_WIDTH_SETTING = "detailsWidth";
 const DETAILS_HEIGHT_SETTING = "detailsHeight";
+// Which way the impact walks ("usedBy" or "uses") and whether it shows only the direct step.
+const IMPACT_WAY_SETTING = "impactDirection";
+const IMPACT_DIRECT_SETTING = "impactDirectOnly";
 // The model a question is asked on, kept per copy (none: the person's Claude Code default).
 const ASK_MODEL = "askModel";
 // While a question is being answered, its answer is looked for this often.
@@ -193,6 +196,8 @@ export default class Chartroom extends View {
     // stays as the levels change, and the walk's result once it is worked out; a count that drops a
     // walk overtaken by another; and a word in the status bar for a moment.
     Object.assign(this, { impact: null, impactAsked: 0, impactPlaced: new WeakMap(), statusNote: "", noteCount: 0 });
+    this.impactDirection = stored(IMPACT_WAY_SETTING, "usedBy") === "uses" ? "uses" : "usedBy";
+    this.impactDirectOnly = stored(IMPACT_DIRECT_SETTING, false) === true;
     // The height of the heading over a wide view's chart, as last measured.
     this.headingHeight = null;
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
@@ -998,7 +1003,7 @@ export default class Chartroom extends View {
     this.impact = { chart, source: ref, result: null };
     cx.notify();
     cx.spawn(async (cx) => {
-      const result = await impactInSlices(chart, ref, {}, pauseOn(cx));
+      const result = await impactInSlices(chart, ref, { direction: this.impactDirection }, pauseOn(cx));
       if (asked !== this.impactAsked || chart !== this.chart) return;
       this.impact = { chart, source: ref, result };
       this.light(cx);
@@ -1019,22 +1024,91 @@ export default class Chartroom extends View {
     return this.impact?.chart === this.chart ? this.impact : null;
   }
 
-  // The impact placed on a level, worked out once per walk and level and kept: a render asks for it
-  // on every frame.
-  impactHere(level) {
+  // The impact placed on a level, and its Impact section there, each worked out once per walk, level
+  // and Direct only, and kept: a render asks for them on every frame.
+  impactKept(level, what, work) {
     const result = this.liveImpact()?.result;
     if (!result) return null;
     if (!this.impactPlaced.has(result)) this.impactPlaced.set(result, new WeakMap());
     const placed = this.impactPlaced.get(result);
-    if (!placed.has(level)) placed.set(level, impactOn(this.chart, level, result));
-    return placed.get(level);
+    if (!placed.has(level)) placed.set(level, new Map());
+    const key = `${what}:${this.impactDirectOnly}`;
+    if (!placed.get(level).has(key)) placed.get(level).set(key, work(result));
+    return placed.get(level).get(key);
   }
 
-  // What the details of `card` show of the impact: its button, and while the impact is this card's,
-  // how much depends on it (null until the walk is done).
-  impactAsk(card) {
-    const isOn = this.liveImpact()?.source === card.id;
-    return { isOn, counts: isOn ? this.impact.result?.counts ?? null : null, onToggle: (cx) => (isOn ? this.hideImpact(cx) : this.showImpact(card.id, cx)) };
+  impactHere(level) {
+    return this.impactKept(level, "on", (result) => {
+      const chains = new Map();
+      const chainOf = (ref) => {
+        if (!chains.has(ref)) chains.set(ref, impactChain(this.chart, result, ref));
+        return chains.get(ref);
+      };
+      return { ...impactOn(this.chart, level, result, { steps: this.impactDirectOnly ? 1 : Infinity }), chainOf };
+    });
+  }
+
+  // What the details of `card` show of the impact: on its source, the Impact section and what its
+  // controls do; on a card it reaches, how it depends on the source; else the button.
+  impactAsk(card, level) {
+    const live = this.liveImpact();
+    const isOn = live?.source === card.id;
+    const ask = { isOn, counts: isOn ? live.result?.counts ?? null : null, onToggle: (cx) => (isOn ? this.hideImpact(cx) : this.showImpact(card.id, cx)) };
+    if (!live?.result) return ask;
+    if (isOn) {
+      return {
+        ...ask,
+        section: this.impactKept(level, "section", (result) => impactSection(this.chart, level, result, { directOnly: this.impactDirectOnly })),
+        isDirectOnly: this.impactDirectOnly,
+        hovered: this.hovered,
+        onDirection: (direction, cx) => this.turnImpact(direction, cx),
+        onDirectOnly: (isDirectOnly, cx) => this.narrowImpact(isDirectOnly, cx),
+        onRow: (row, cx) => this.pickKeepingImpact(row.id, cx),
+        onElsewhere: (one, cx) => this.showLevel(this.chart.nodes.get(one.part)?.parent ?? null, `n:${one.part}`, cx, (cx) => this.explainSoon(cx)),
+        onHoverRow: (id, isHovered, cx) => this.hover(id, isHovered, cx),
+      };
+    }
+    const reached = this.impactHere(level)?.cards.get(card.id);
+    if (!reached) return ask;
+    const source = impactChain(this.chart, live.result, live.source).at(-1) ?? live.source;
+    return { ...ask, affected: { source, steps: reached.steps, chain: impactChain(this.chart, live.result, reached.ref), isUsedBy: live.result.direction !== "uses", onBack: (cx) => this.backToImpactSource(cx) } };
+  }
+
+  // Used by or Uses: the impact of the same source, walked the other way.
+  turnImpact(direction, cx) {
+    if (direction === this.impactDirection) return;
+    this.impactDirection = direction;
+    store(IMPACT_WAY_SETTING, direction);
+    const live = this.liveImpact();
+    if (live) this.showImpact(live.source, cx);
+  }
+
+  // All steps or Direct only: the same walk, placed again.
+  narrowImpact(isDirectOnly, cx) {
+    this.impactDirectOnly = isDirectOnly;
+    store(IMPACT_DIRECT_SETTING, isDirectOnly);
+    this.light(cx);
+    cx.notify();
+  }
+
+  // A row of the Impact section, or Back: picks a card and leaves the source as it is, so a chain
+  // can be followed without losing the impact.
+  pickKeepingImpact(id, cx) {
+    if (this.selected !== id) this.light(cx);
+    this.selected = id;
+    this.explainSoon(cx);
+    if (this.detailsFolded) this.foldDetails(false, cx);
+    cx.notify();
+  }
+
+  // Back to the source's card: picked where it shows, else on the level that holds it.
+  backToImpactSource(cx) {
+    const ref = this.liveImpact()?.source;
+    if (!ref) return;
+    const view = this.view(cx);
+    if (view && [...view.level.inside, ...view.level.outside].some((card) => card.id === ref)) return this.pickKeepingImpact(ref, cx);
+    const at = ref.startsWith("f:") ? this.chart.files.get(ref.slice(2))?.n ?? null : this.chart.nodes.get(ref.slice(2))?.parent ?? null;
+    this.showLevel(at, ref, cx, (cx) => this.explainSoon(cx));
   }
 
   // A word in the status bar for a moment, in place of the keys.
@@ -1554,7 +1628,7 @@ export default class Chartroom extends View {
     const isWide = this.isWide();
     const onPick = (card, isOpening, cx) => this.pick(card, isOpening, cx);
     const explain = { record: this.explanation?.card === this.selected ? this.explanation : null, onExplain: (cx) => this.explainSoon(cx, true) };
-    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain, impact: details ? this.impactAsk(details.card) : null });
+    const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain, impact: details ? this.impactAsk(details.card, view.level) : null });
     const body = isWide ? h_flex() : v_flex();
     const isDragging = Boolean(this.drag && this.didDrag);
     // The chart is a map to move around: dragged anywhere, a card too, or moved with the wheel.

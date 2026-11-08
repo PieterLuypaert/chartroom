@@ -411,11 +411,12 @@ function sourcesOf(chart, ref) {
 }
 
 // An impact on a level: each card on it with something affected, at the fewest steps of what in it
-// is affected and with how many of its files are; the cards that hold the source; the lines from an
-// affected card towards the source (or, for "uses", away from it), by their keys; what is affected
-// with no card on the level, by the part it is in; and how many parts (each at the deepest) and
-// files are affected in all.
-export function impactOn(chart, level, impact) {
+// is affected, with how many of its files are, the file nearest the source (`ref`) and what it
+// holds that is affected (`refs`, lists of [ref, steps]); the cards that hold the source; the lines
+// from an affected card towards the source (or, for "uses", away from it), by their keys; what is
+// affected with no card on the level, by the part it is in; and how many parts (each at the
+// deepest) and files are affected in all. `steps` keeps only what is at most that many steps away.
+export function impactOn(chart, level, impact, { steps: most = Infinity } = {}) {
   const cardOf = cardsOn(chart, level.focus);
   const shown = new Set([...level.inside, ...level.outside].map((card) => card.id));
   const onLevel = (ref) => {
@@ -428,17 +429,27 @@ export function impactOn(chart, level, impact) {
   for (const [part, refs] of impact.sourceGroups) for (const ref of ends(part, refs)) if (onLevel(ref)) sources.add(onLevel(ref));
   const cards = new Map();
   const elsewhere = new Map();
-  const place = (id, key, steps, count) => {
+  const isAll = most === Infinity;
+  const counts = { parts: 0, files: 0 };
+  const fileCount = (refs) => refs.reduce((sum, [ref]) => sum + (ref.startsWith("f:") ? 1 : 0), 0);
+  const place = (id, key, refs, files) => {
     if (id && sources.has(id)) return;
     const [into, at] = id ? [cards, id] : [elsewhere, key];
-    const one = into.get(at) ?? (id ? { steps, files: 0 } : { part: key, steps, files: 0 });
-    one.steps = Math.min(one.steps, steps);
-    one.files += count;
+    const [ref, steps] = refs[0];
+    const one = into.get(at) ?? (id ? { steps, files: 0, ref, refs: [] } : { part: key, steps, files: 0, ref, refs: [] });
+    if (steps < one.steps) Object.assign(one, { steps, ref });
+    one.files += files;
+    one.refs.push(refs);
     into.set(at, one);
   };
   for (const [part, group] of impact.groups) {
-    if (part === level.focus) for (const [ref, steps] of group.refs) place(onLevel(ref), part, steps, ref.startsWith("f:") ? 1 : 0);
-    else place(onLevel(`n:${part}`), part, group.steps, group.files);
+    if (group.steps > most) continue;
+    const refs = isAll ? group.refs : group.refs.filter(([, steps]) => steps <= most);
+    const files = isAll ? group.files : fileCount(refs);
+    counts.parts += 1;
+    counts.files += files;
+    if (part === level.focus) for (const one of refs) place(onLevel(one[0]), part, [one], fileCount([one]));
+    else place(onLevel(`n:${part}`), part, refs, files);
   }
   const stepsOf = (id) => (sources.has(id) ? 0 : cards.get(id)?.steps ?? null);
   const isUsedBy = impact.direction !== "uses";
@@ -447,8 +458,87 @@ export function impactOn(chart, level, impact) {
     return from !== null && to !== null && (isUsedBy ? from > to : to > from);
   }).map((line) => line.key));
   const away = [...elsewhere.values()].sort((a, b) => a.steps - b.steps || a.part.localeCompare(b.part));
-  return { cards, sources, lines, elsewhere: away, counts: impact.counts };
+  return { cards, sources, lines, elsewhere: away, counts: isAll ? impact.counts : counts };
 }
+
+// The name of a file or a node, as its card says it.
+function endLabel(chart, end) {
+  if (end.startsWith("f:")) {
+    const path = end.slice(2);
+    return chart.files.get(path)?.name || baseName(path);
+  }
+  return chart.nodes.get(end.slice(2))?.label || end.slice(2);
+}
+
+// The shortest chain from something affected back to the source, by name: what it is, what it
+// uses (or, for "uses", what uses it), and so on to the source.
+export function impactChain(chart, impact, ref) {
+  const out = [];
+  for (let at = ref; at && out.length <= MAX_DEPTH * 64; at = impact.affected.get(at)?.from) {
+    out.push(endLabel(chart, at));
+    if (!impact.affected.has(at)) break;
+  }
+  return out;
+}
+
+const stepWords = (steps) => (steps === 1 ? "Directly" : steps === 2 ? "Through one more" : `Through ${steps - 1} more`);
+
+// The details' Impact section, on a level: its title; the counts; the cards affected, grouped by
+// their steps, each with its affected files, its chain back to the source, and what carries it (one
+// step away: the import's names or the endpoint) or the card it comes through (further: the card
+// one step nearer, or that file's name where no other card on the level holds it); what has no card
+// on the level, by where it is; and the tests apart, as they depend on nearly everything.
+export function impactSection(chart, level, impact, { directOnly = false } = {}) {
+  const on = impactOn(chart, level, impact, { steps: directOnly ? 1 : Infinity });
+  const cardsById = new Map([...level.inside, ...level.outside].map((card) => [card.id, card]));
+  const cardOf = cardsOn(chart, level.focus);
+  const label = endLabel(chart, endOf(chart, impact.source) ?? impact.source);
+  let tests = null;
+  const toTests = (files) => (tests = { parts: (tests?.parts ?? 0) + 1, files: (tests?.files ?? 0) + files });
+  const through = (id, ref) => {
+    const from = impact.affected.get(ref).from;
+    const card = cardOf(from);
+    return card && cardsById.has(card.id) && card.id !== id && !on.sources.has(card.id) ? cardsById.get(card.id).label : endLabel(chart, from);
+  };
+  const carries = (refs) => {
+    const carried = new Set();
+    for (const list of refs) for (const [ref, steps] of list) if (steps === 1) for (const word of linkWords(impact.affected.get(ref).via)) carried.add(word);
+    return [...carried];
+  };
+  const groups = new Map();
+  for (const [id, one] of on.cards) {
+    const card = cardsById.get(id);
+    if (card.kind === "test") {
+      toTests(one.files);
+      continue;
+    }
+    const row = { id, label: card.label, kind: card.kind, steps: one.steps, files: one.files, ref: one.ref, chain: impactChain(chart, impact, one.ref) };
+    if (one.steps === 1) row.carries = carries(one.refs);
+    else row.through = through(id, one.ref);
+    push(groups, one.steps, row);
+  }
+  const elsewhere = [];
+  for (const one of on.elsewhere) {
+    if (chart.nodes.get(one.part)?.kind === "test") {
+      toTests(one.files);
+      continue;
+    }
+    const where = chart.nodes.has(one.part) ? trailOf(chart, one.part).map((step) => step.label).slice(1).join(" › ") : one.part;
+    elsewhere.push({ part: one.part, where, steps: one.steps, files: one.files, ref: one.ref, chain: impactChain(chart, impact, one.ref) });
+  }
+  const byFiles = (a, b) => b.files - a.files || a.label.localeCompare(b.label);
+  return {
+    title: impact.direction === "uses" ? `What ${label} relies on` : `Impact of ${label}`,
+    direction: impact.direction,
+    counts: on.counts,
+    groups: [...groups].sort(([a], [b]) => a - b).map(([steps, rows]) => ({ steps, label: stepWords(steps), rows: rows.sort(byFiles) })),
+    elsewhere,
+    tests,
+  };
+}
+
+// What a link carries, in words: the names it imports, or the request it makes.
+const linkWords = (link) => (link.labels?.length ? link.labels : link.names ?? []);
 
 // The card on the level of `focus` that a part or file anywhere in the chart shows as ("n:<id>" or
 // "f:<path>"): itself, the part on this level it is inside, or the part beside this level it is in.

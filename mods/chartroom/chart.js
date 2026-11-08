@@ -71,7 +71,11 @@ export function chartView({ t, laid, selected, hovered, lighted = new Set(), imp
   const isElk = Boolean(laid.lines);
   const isFocused = Boolean(selected || hovered || lighted.size || impact);
   const all = geometryOf(laid, lines, zoom);
-  const impactFor = (box) => (impact ? { impact: impact.cards.get(box.id) ?? null, isSource: impact.sources.has(box.id), isDimmed: !impact.sources.has(box.id) && !impact.cards.has(box.id) } : {});
+  const impactFor = (box) => {
+    if (!impact) return {};
+    const one = impact.cards.get(box.id) ?? null;
+    return { impact: one, isSource: impact.sources.has(box.id), isDimmed: !impact.sources.has(box.id) && !one, chain: one && impact.chainOf ? impact.chainOf(one.ref) : null };
+  };
   const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id), isInstant, ...impactFor(box) }, box.id === selected, onPick, onHover, zoom, laid.direction);
   const litKey = impact ? `impact-${[...impact.lines].sort().join("|")}` : `${selected}-${lighted.size}`;
   return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
@@ -183,7 +187,7 @@ function framed(el, t, box, isSelected, onPick, onHover, zoom = 1) {
     .border_1().border_color(isSelected || box.isLighted || box.isSource || box.impact ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
     .when(Boolean(box.isSource), (card) => card.border_2())
     .when(Boolean(box.isDimmed), (card) => card.opacity(DIMMED))
-    .tooltip(box.summary || box.label)
+    .tooltip(box.chain?.length > 1 ? chainWords(box.chain) : box.summary || box.label)
     .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
     .on_click((event, cx) => onPick(box, event.click_count >= 2, cx));
 }
@@ -381,16 +385,99 @@ function levelDetails(t, level, chart) {
   ];
 }
 
+// A card's details. While the impact is the card's, its Impact section stands in for "Uses" and
+// "Used by"; on a card the impact reaches, how it depends on the source.
 function cardDetails(t, { card, uses, usedBy }, onPick, onOpen, explain, impact) {
+  const isSource = Boolean(impact?.section);
   return [
     head(t, card.label, kindOf(card).word, card.isOpenable ? openButton(t, card, onOpen) : null),
     text(t, card.summary),
-    ...impactLine(t, impact),
+    ...(isSource ? impactSection(t, impact) : impactLine(t, impact)),
+    ...affectedBy(t, impact?.affected),
     ...explained(t, explain),
     ...(card.kind === "file" ? fileFacts(t, card) : []),
-    ...section(t, "Uses", uses, "to", onPick),
-    ...section(t, "Used by", usedBy, "from", onPick),
+    ...(isSource ? [] : [...section(t, "Uses", uses, "to", onPick), ...section(t, "Used by", usedBy, "from", onPick)]),
   ];
+}
+
+// The Impact section of the source's details: its title, the way it walks (Used by | Uses) and how
+// far (All | Direct), ✕; the counts and what they come from; then the cards it reaches by their
+// steps, what has no card on this level, and the tests apart. A row picks its card and keeps the
+// source; pointed at, it shows its chain back to the source.
+function impactSection(t, impact) {
+  const { section } = impact;
+  const isUsedBy = section.direction !== "uses";
+  const counted = section.counts.parts === 0 ? (isUsedBy ? "Nothing on the chart depends on it." : "It relies on nothing on the chart.")
+    : `${plural(section.counts.parts, "part")} and ${plural(section.counts.files, "file")} ${isUsedBy ? "depend on it" : "it relies on"}`;
+  const row = (id, icon, label, files, words, chain, onClick) => {
+    const isPointed = impact.hovered === id;
+    return v_flex().id(`impact-${id}`).flex_none().px(8).py(5).gap(3).rounded(7).cursor_pointer().hover((s) => s.bg(t.hover))
+      .when(isPointed, (el) => el.bg(t.hover))
+      .on_hover((isHovered, cx) => impact.onHoverRow(id, isHovered, cx))
+      .on_click((_e, cx) => onClick(cx))
+      .child(h_flex().min_w(0).gap(8).items_center()
+        .child(svg(icon).size(13).flex_none().text_color(t.muted))
+        .child(div().flex_shrink_1().min_w(0).max_w(170).truncate().child(label))
+        .when(files > 0, (el) => el.child(div().flex_none().text_size(TYPE.small).text_color(t.dim).child(plural(files, "file"))))
+        .child(div().flex_1().min_w(0).truncate().text_size(TYPE.label).text_color(t.dim).child(words)))
+      .when(isPointed && chain.length > 1, (el) => el.child(div().pl(21).text_size(TYPE.small).line_height(TYPE.labelLine).text_color(t.muted).child(chainWords(chain))));
+  };
+  const words = (one) => (one.steps === 1 ? (one.carries.length ? one.carries.slice(0, 3).join(" · ") + (one.carries.length > 3 ? ` +${one.carries.length - 3}` : "") : "") : `through ${one.through}`);
+  return [
+    h_flex().px(8).pt(6).gap(8).items_center()
+      .child(div().flex_1().min_w(0).truncate().font_semibold().child(section.title))
+      .child(div().id("impact-off").flex_none().size(22).flex().items_center().justify_center().rounded(6).text_color(t.muted)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().tooltip("Hide impact (i)")
+        .on_click((_e, cx) => impact.onToggle(cx)).child(svg(`${ICONS}/x.svg`).size(13))),
+    h_flex().flex_wrap().px(8).pt(4).gap(6)
+      .child(segment(t, "impact-way", [["usedBy", "Used by"], ["uses", "Uses"]], section.direction, impact.onDirection))
+      .child(segment(t, "impact-steps", [["all", "All steps"], ["direct", "Direct only"]], impact.isDirectOnly ? "direct" : "all", (key, cx) => impact.onDirectOnly(key === "direct", cx))),
+    div().px(8).pt(6).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.foreground).child(counted),
+    div().px(8).pb(2).text_size(TYPE.small).text_color(t.dim).child("From the imports and requests the scan found."),
+    ...section.groups.flatMap((group) => [
+      heading(t, `${group.label}  ${group.rows.length}`),
+      ...group.rows.map((one) => row(one.id, iconOf(one), one.label, one.files, words(one), one.chain, (cx) => impact.onRow(one, cx))),
+    ]),
+    ...(section.elsewhere.length ? [
+      heading(t, `Elsewhere  ${section.elsewhere.length}`),
+      ...section.elsewhere.map((one) => row(`elsewhere:${one.part}`, `${ICONS}/folder.svg`, one.where, one.files, one.steps === 1 ? "directly" : `${one.steps} steps`, one.chain, (cx) => impact.onElsewhere(one, cx))),
+    ] : []),
+    ...(section.tests ? [heading(t, `Tests  ${plural(section.tests.files, "file")} in ${plural(section.tests.parts, "part")}`)] : []),
+  ];
+}
+
+// A chain from something affected to the source, by name; a long one keeps its two ends and says how
+// many it leaves out between them.
+const LONGEST_CHAIN = 6;
+function chainWords(chain) {
+  if (chain.length <= LONGEST_CHAIN) return chain.join(" → ");
+  return [...chain.slice(0, 2), `… ${chain.length - 4} more …`, ...chain.slice(-2)].join(" → ");
+}
+
+// A choice of two or more, side by side: the one chosen on `t.selected`.
+function segment(t, id, options, value, onPick) {
+  return h_flex().id(id).flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border)
+    .children(options.map(([key, label]) => div().id(`${id}-${key}`).h_full().px(7).flex().items_center().rounded(4).text_size(TYPE.small).cursor_pointer()
+      .when(key === value, (el) => el.bg(t.selected).text_color(t.foreground))
+      .when(key !== value, (el) => el.text_color(t.muted).hover((s) => s.text_color(t.foreground)))
+      .on_click((_e, cx) => onPick(key, cx))
+      .child(label)));
+}
+
+// On a card the impact reaches: how it depends on the source (or, turned round, that the source
+// relies on it), how many steps away, the chain between them, and a way back to the source.
+function affectedBy(t, affected) {
+  if (!affected) return [];
+  const steps = plural(affected.steps, "step");
+  return [v_flex().mx(4).mt(6).mb(2).px(11).py(8).gap(4).rounded(8).border_1().border_color(thin(t.accent, "55")).bg(thin(t.accent, "12"))
+    .child(h_flex().flex_wrap().gap(6).items_center()
+      .child(div().size(6).flex_none().rounded_full().bg(t.accent))
+      .child(div().flex_shrink_1().min_w(0).truncate().text_size(TYPE.small).font_medium().text_color(t.accent)
+        .child(affected.isUsedBy ? `Depends on ${affected.source} · ${steps}` : `${affected.source} relies on it · ${steps}`)))
+    .child(div().text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.muted).child(chainWords(affected.chain)))
+    .child(h_flex().id("impact-back").gap(2).items_center().text_size(TYPE.label).text_color(t.accent).cursor_pointer()
+      .hover((s) => s.text_color(t.foreground)).on_click((_e, cx) => affected.onBack(cx))
+      .child(`Back to ${affected.source}`).child(svg(`${ICONS}/chevron-right.svg`).size(12)))];
 }
 
 // The picked card explained by the person's own Claude: a button to ask for it, on its way, its
