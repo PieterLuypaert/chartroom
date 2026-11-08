@@ -300,13 +300,22 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `vendor`, `dist` and the like, `build`, `out` and the like where git does not know the folder,
   `.min.js`, `.map` and lockfiles, and what is not text. A project's own `.d.ts` files are read: an
   import leads to one only where no code file answers it, so `../types` reaches `types/index.d.ts`, while
-  `./thing` with `thing.js` beside `thing.d.ts` reaches `thing.js`), **parts** (one `claude -p` with Read,
-  Grep, Glob), **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or
+  `./thing` with `thing.js` beside `thing.d.ts` reaches `thing.js`; and the programs a file runs, by the
+  name written in the call: `spawn`, `execFile`, `execa`, `Bun.spawn`, `exec("git", [...])`, a bare `exec`
+  or `execSync` command line and `$\`...\`` in JS/TS, `subprocess` and `os.system` in Python,
+  `exec.Command` in Go, `Command::new` in Rust, `ProcessBuilder` and `Runtime.exec` in Java and Kotlin,
+  `shell_exec` and the like in PHP; lowercase names only, at most 20, none in a comment or running on into
+  a path, and no shells, runtimes, package managers or everyday shell tools), **parts** (one `claude -p`
+  with Read, Grep, Glob; it is shown the packages, addresses and programs the code uses, with how many files
+  use each, and names each outside service with the `packages`, `hosts` and `programs` that show it, so a
+  tool the code runs, such as git, is named on every drawing), **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or
   `$CHARTROOM_DESCRIBE_MODEL`; each file as a digest: its first comment, every name it defines and every test
-  it holds by title, up to 60 each, what it uses, how many use it, its endpoints, and its first 24 lines
+  it holds by title, up to 60 each, what it uses, the programs it runs, how many use it, its endpoints, and its first 24 lines
   past the imports; the prompt says to describe the file as a whole, only as far as the code and the facts
   shown say, and to leave out what a file's name, folder, or a parameter's name only suggests),
-  **build**. It writes `.chartroom/{chart,state,progress}.json`, `pid`, `draw.log` and a `.gitignore` of `*`.
+  **build** (a file is linked to an outside service by a package it imports (`import`), an address it
+  calls (`http`) or a program it runs (`run`); a service named before programs were read has none). It
+  writes `.chartroom/{chart,state,progress}.json`, `pid`, `draw.log` and a `.gitignore` of `*`.
   `claude.js` runs `claude -p --output-format json --no-session-persistence --strict-mcp-config
   --setting-sources "" --tools … --json-schema …`. `ask.js <folder> <id> <json>` writes
   `.chartroom/asks/<id>.json` (or `explains/<hash>.json` for an explanation, model `sonnet`), status asking
