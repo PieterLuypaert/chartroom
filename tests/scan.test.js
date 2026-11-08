@@ -217,6 +217,24 @@ describe("resolve", () => {
     expect(resolve(page, "node:fs")).toEqual({ files: [], pkg: null });
   });
 
+  test("follows an import to a project's own .d.ts file only when no code file answers it", () => {
+    const typed = [
+      { path: "app/src/deck.ts", repo: "", lang: "js" },
+      { path: "app/types/index.d.ts", repo: "", lang: "js" },
+      { path: "app/src/tides.ts", repo: "", lang: "js" },
+      { path: "app/src/tides.d.ts", repo: "", lang: "js" },
+      { path: "app/src/lib/thing.js", repo: "", lang: "js" },
+      { path: "app/src/lib/thing.d.ts", repo: "", lang: "js" },
+      { path: "app/src/env.d.ts", repo: "", lang: "js" },
+    ];
+    const resolveTyped = resolverFor(typed);
+    const deck = typed[0];
+    expect(resolveTyped(deck, "../types").files).toEqual(["app/types/index.d.ts"]);
+    expect(resolveTyped(deck, "./tides").files).toEqual(["app/src/tides.ts"]);
+    expect(resolveTyped(deck, "./lib/thing").files).toEqual(["app/src/lib/thing.js"]);
+    expect(resolveTyped(deck, "./env").files).toEqual(["app/src/env.d.ts"]);
+  });
+
   test("reads a tsconfig with globs in its strings and comments around them, as Next.js writes it", () => {
     const next = '{\n  // Next.js\n  "compilerOptions": { /* where */ "baseUrl": ".", "paths": { "@/*": ["./src/*"] } },\n  "include": ["**/*.ts", "**/*.tsx"],\n}';
     expect(JSON.parse(withoutComments(next)).include).toEqual(["**/*.ts", "**/*.tsx"]);
@@ -408,6 +426,16 @@ describe("scan, however large the project", () => {
     const tables = read.files.find((file) => file.path === "src/tables.ts");
     expect(tables.loc).toBe(16004);
     expect(read.links.map((one) => `${one.a} > ${one.b}`)).toEqual(["src/tables.ts > src/port.ts"]);
+  });
+
+  test("reads a project's own .d.ts files, but not those a build writes", async () => {
+    write("typed", "src/deck.ts", 'import type { Deck } from "../types";\nexport const deck: Deck = { cards: [] };\n');
+    write("typed", "types/index.d.ts", "export interface Deck { cards: string[] }\n");
+    write("typed", "dist/index.d.ts", "export declare const deck: unknown;\n");
+    write("typed", "src/app.min.js", "var a=1;\n");
+    const read = await scan(join(work, "typed"));
+    expect(read.files.map((file) => file.path).sort()).toEqual(["src/deck.ts", "types/index.d.ts"]);
+    expect(read.links.map((one) => `${one.a} > ${one.b}`)).toEqual(["src/deck.ts > types/index.d.ts"]);
   });
 
   test("leaves out a file with a code file's name that is not text", async () => {
