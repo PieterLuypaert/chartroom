@@ -57,19 +57,23 @@ function subline(card) {
 // the other lines stepping aside meanwhile (`isMoving`) as they are drawn at the new places at once.
 //
 // An answer shown lights the cards it is about (`lighted`) and the lines between them.
-export function chartView({ t, laid, selected, hovered, lighted = new Set(), isInstant = false, onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
+// `impact`, when on, is the impact placed on this level (model.js's impactOn): it lights the lines
+// along the way to its source in place of the card picked's, steps each affected card's tint by how
+// far away it is, marks the source's cards, and dims the rest.
+export function chartView({ t, laid, selected, hovered, lighted = new Set(), impact = null, isInstant = false, onPick, onHover, levelKey, isEntering, isLitEntering, isMoving }) {
   const lines = laid.lines ?? laid.curves;
   const touches = (line, id) => Boolean(id) && (line.from === id || line.to === id);
   const isLighted = (line) => lighted.has(line.from) && lighted.has(line.to);
-  const lit = lines.filter((line) => touches(line, selected) || isLighted(line));
+  const lit = impact ? lines.filter((line) => impact.lines.has(line.key ?? `${line.from}>${line.to}`)) : lines.filter((line) => touches(line, selected) || isLighted(line));
   const isLit = new Set(lit);
   const hot = lines.filter((line) => !isLit.has(line) && touches(line, hovered));
   const zoom = laid.zoom ?? 1;
   const isElk = Boolean(laid.lines);
-  const isFocused = Boolean(selected || hovered || lighted.size);
+  const isFocused = Boolean(selected || hovered || lighted.size || impact);
   const all = geometryOf(laid, lines, zoom);
-  const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id), isInstant }, box.id === selected, onPick, onHover, zoom, laid.direction);
-  const litKey = `${selected}-${lighted.size}`;
+  const impactFor = (box) => (impact ? { impact: impact.cards.get(box.id) ?? null, isSource: impact.sources.has(box.id), isDimmed: !impact.sources.has(box.id) && !impact.cards.has(box.id) } : {});
+  const card = (box) => (isElk ? elkCard : plainCard)(t, { ...box, isLighted: lighted.has(box.id), isInstant, ...impactFor(box) }, box.id === selected, onPick, onHover, zoom, laid.direction);
+  const litKey = impact ? `impact-${[...impact.lines].sort().join("|")}` : `${selected}-${lighted.size}`;
   return div().id(`level-${levelKey}`).relative().when(isElk, (el) => el.w(laid.width)).when(!isElk, (el) => el.w_full()).h(laid.height)
     .opacity(isEntering ? 0 : 1).transition("opacity", FADE)
     .children([
@@ -173,13 +177,34 @@ function twoLines(words, width, size) {
 
 // The parts every card shares: its place and size, gliding there, its frame, and picking it.
 // A card an answer is about wears the accent too, on a tint of it.
-function framed(el, t, box, isSelected, onPick, onHover) {
+function framed(el, t, box, isSelected, onPick, onHover, zoom = 1) {
   return el.id(`card-${box.id}`).absolute().left(box.x).top(box.y).w(box.w).h(box.h)
     .when(!box.isInstant, (card) => card.transition("left", GLIDE).transition("top", GLIDE).transition("width", GLIDE))
-    .border_1().border_color(isSelected || box.isLighted ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    .border_1().border_color(isSelected || box.isLighted || box.isSource || box.impact ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    .when(Boolean(box.isSource), (card) => card.border_2())
+    .when(Boolean(box.isDimmed), (card) => card.opacity(DIMMED))
     .tooltip(box.summary || box.label)
     .on_hover((isHovered, cx) => onHover?.(box.id, isHovered, cx))
-    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx));
+    .on_click((event, cx) => onPick(box, event.click_count >= 2, cx))
+    .when(Boolean(box.isSource || box.impact), (card) => card.child(impactTab(t, box, zoom)));
+}
+
+// How faint a card the impact does not reach is, and how strong an affected card's tint is by how
+// many steps it is from the source: the nearest strongest, so the steps read without the numbers.
+const DIMMED = 0.35;
+const STEP_TINTS = ["40", "26", "14"];
+const impactTint = (t, box) => (box.impact ? thin(t.accent, STEP_TINTS[Math.min(box.impact.steps, STEP_TINTS.length) - 1]) : null);
+
+// Above an affected card, how many steps it is from the source and how many of its files are
+// affected; above the source's card, that it is the source. A tab over the card's top edge, so it
+// hides none of the card.
+function impactTab(t, box, zoom) {
+  const files = box.impact?.files ?? 0;
+  return h_flex().absolute().top(-9 * zoom).right(10 * zoom).h(18 * zoom).px(6 * zoom).gap(4 * zoom).items_center().rounded(9 * zoom)
+    .border_1().border_color(t.accent).bg(t.background).text_size(10.5 * zoom).text_color(t.accent)
+    .when(Boolean(box.isSource), (el) => el.font_medium().child("source"))
+    .when(!box.isSource, (el) => el.child(div().font_semibold().child(String(box.impact.steps)))
+      .when(files > 0, (tab) => tab.child(div().text_color(t.muted).child(`· ${files} file${files === 1 ? "" : "s"}`))));
 }
 
 const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_none().text_color(t.dim);
@@ -187,9 +212,9 @@ const chevron = (t, size) => svg(`${ICONS}/chevron-right.svg`).size(size).flex_n
 // A card on ELK's layout. Inside the part: its icon on a tile, its name, and in a wide view two lines
 // of what it does, else what it is. Outside it: a slim pill with its icon and name.
 function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
-  const ground = isSelected ? t.selected : box.isLighted ? thin(t.accent, "1c") : box.isInside && box.kind !== "external" ? t.background : t.chrome;
+  const ground = isSelected ? t.selected : impactTint(t, box) ?? (box.isLighted ? thin(t.accent, "1c") : box.isInside && box.kind !== "external" ? t.background : t.chrome);
   if (!box.isInside || box.kind === "external") {
-    return framed(h_flex(), t, box, isSelected, onPick, onHover).rounded(box.h / 2).bg(ground).px(11 * zoom).gap(7 * zoom).items_center()
+    return framed(h_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(box.h / 2).bg(ground).px(11 * zoom).gap(7 * zoom).items_center()
       .child(svg(iconOf(box)).size(13 * zoom).flex_none().text_color(t.muted))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5 * zoom).text_color(t.muted).child(box.label))
       .when(box.isOpenable, (el) => el.child(chevron(t, 11 * zoom)));
@@ -197,7 +222,7 @@ function elkCard(t, box, isSelected, onPick, onHover, zoom, direction) {
   const isTall = direction === "RIGHT";
   const route = box.kind === "file" && isTall ? box.routes?.[0] : null;
   const about = isTall ? twoLines(box.summary || subline(box), box.w - 24 * zoom, 11.8 * zoom).slice(0, route ? 1 : 2) : [subline(box)];
-  return framed(v_flex(), t, box, isSelected, onPick, onHover).rounded(9 * zoom).bg(ground).px(11 * zoom).gap(4 * zoom).justify_center()
+  return framed(v_flex(), t, box, isSelected, onPick, onHover, zoom).rounded(9 * zoom).bg(ground).px(11 * zoom).gap(4 * zoom).justify_center()
     .child(h_flex().min_w(0).gap(8 * zoom).items_center()
       .child(div().size(20 * zoom).flex_none().rounded(5 * zoom).bg(t.raised).flex().items_center().justify_center()
         .child(svg(iconOf(box)).size(12 * zoom).text_color(t.muted)))
@@ -222,7 +247,7 @@ function routeChip(t, route, more, zoom) {
 function plainCard(t, box, isSelected, onPick, onHover) {
   const isInside = box.isInside;
   return framed(v_flex(), t, box, isSelected, onPick, onHover).px(10).gap(2).justify_center().rounded(8)
-    .bg(isSelected ? t.selected : isInside ? t.background : t.chrome)
+    .bg(isSelected ? t.selected : impactTint(t, box) ?? (isInside ? t.background : t.chrome))
     .child(h_flex().min_w(0).gap(6).items_center()
       .child(svg(iconOf(box)).size(13).flex_none().text_color(isInside ? t.muted : t.dim))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().text_color(isInside ? t.foreground : t.muted).child(box.label))
@@ -238,8 +263,8 @@ function plainCard(t, box, isSelected, onPick, onHover) {
 // setting for larger panels.
 const TYPE = { read: 13, readLine: "20px", strong: 13, label: 12, labelLine: "16px", small: 11 };
 
-export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain }) {
-  const body = details ? cardDetails(t, details, onPick, onOpen, explain) : levelDetails(t, level, chart);
+export function detailsView({ t, details, level, chart, onPick, onOpen, ask, explain, impact = null }) {
+  const body = details ? cardDetails(t, details, onPick, onOpen, explain, impact) : levelDetails(t, level, chart);
   return v_flex().size_full().min_h(0)
     .child(v_flex().id("details").flex_1().min_h(0).overflow_y_scrollbar().px(8).py(8).gap(2).children(body)
       .children(answers(t, ask)))
@@ -334,10 +359,11 @@ function levelDetails(t, level, chart) {
   ];
 }
 
-function cardDetails(t, { card, uses, usedBy }, onPick, onOpen, explain) {
+function cardDetails(t, { card, uses, usedBy }, onPick, onOpen, explain, impact) {
   return [
     head(t, card.label, kindOf(card).word, card.isOpenable ? openButton(t, card, onOpen) : null),
     text(t, card.summary),
+    ...impactLine(t, impact),
     ...explained(t, explain),
     ...(card.kind === "file" ? fileFacts(t, card) : []),
     ...section(t, "Uses", uses, "to", onPick),
@@ -388,6 +414,27 @@ function head(t, title, pill, action = null) {
 
 function text(t, words) {
   return div().px(8).pb(4).text_size(TYPE.read).line_height(TYPE.readLine).text_color(t.muted).child(words || "No description yet.");
+}
+
+// What depends on the card: a button that lights it on the chart, any number of steps away (i);
+// and while it is lit for this card, how much depends on it, from what the chart knows.
+function impactLine(t, impact) {
+  if (!impact) return [];
+  const button = h_flex().id("details-impact").flex_none().h(24).px(8).items_center().rounded(6).border_1()
+    .border_color(impact.isOn ? t.accent : t.border).text_size(TYPE.label).text_color(impact.isOn ? t.accent : t.muted)
+    .hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
+    .tooltip(impact.isOn ? "Hide what depends on it (i)" : "Light everything that depends on it, any number of steps away (i)")
+    .on_click((_e, cx) => impact.onToggle(cx))
+    .child(impact.isOn ? "Hide impact" : "Show impact");
+  const rows = [h_flex().px(8).pt(4).pb(2).child(button)];
+  if (!impact.isOn) return rows;
+  const { counts } = impact;
+  const words = !counts ? "Working out what depends on it…"
+    : counts.parts === 0 ? "Nothing on the chart depends on it."
+      : `${plural(counts.parts, "part")} and ${plural(counts.files, "file")} depend on it`;
+  return [...rows,
+    div().px(8).pt(2).text_size(TYPE.label).line_height(TYPE.labelLine).text_color(t.foreground).child(words),
+    div().px(8).pb(4).text_size(TYPE.small).text_color(t.dim).child("From the imports and requests the scan found.")];
 }
 
 function openButton(t, card, onOpen) {
