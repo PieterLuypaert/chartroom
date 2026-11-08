@@ -282,7 +282,11 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `localStorage`, one per copy, keeps `pinned`, `picked`, `detailsFolded`, `detailsWidth` and `detailsHeight`.
 - Programs: `sh`, `bun`, `git`, `ps`, `kill`, `claude`. The `draw/` pipeline, `bun draw/draw.js <folder>
   [--update]`: **scan** (no Claude; `git ls-files`, imports resolved for JS/TS, Python, Go, PHP, Java,
-  Kotlin and Rust, web requests matched to the endpoints that answer them), **parts** (one `claude -p` with Read,
+  Kotlin and Rust, web requests matched to the endpoints that answer them; left out: `node_modules`,
+  `vendor`, `dist` and the like, `build`, `out` and the like where git does not know the folder,
+  `.min.js`, `.map` and lockfiles, and what is not text. A project's own `.d.ts` files are read: an
+  import leads to one only where no code file answers it, so `../types` reaches `types/index.d.ts`, while
+  `./thing` with `thing.js` beside `thing.d.ts` reaches `thing.js`), **parts** (one `claude -p` with Read,
   Grep, Glob), **describe** (batches of 40 files, 4 at once, no tools, model `sonnet` or
   `$CHARTROOM_DESCRIBE_MODEL`),
   **build**. It writes `.chartroom/{chart,state,progress}.json`, `pid`, `draw.log` and a `.gitignore` of `*`.
