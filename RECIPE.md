@@ -178,9 +178,28 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   - **The source's cards** are framed 2px in the accent, the mark holding their icon, the line "source".
   - **The lines** from each affected card towards the source are lit in place of the card picked's.
   - **The rest dims** to 35% opacity, the other lines as on a focused level.
-  - **The details** of the source say "14 parts and 52 files depend on it" ("Nothing on the chart depends on it.",
-    or "Working out what depends on it…" until the walk is done), and in 11px `t.dim` "From the imports and
-    requests the scan found."
+  - **The details** of the source say "Working out what depends on it…" until the walk is done, then show
+    its **Impact section** in place of "Uses" and "Used by":
+    - **Its head:** the title ("Impact of Orders", or "What Orders relies on"), and ✕ to hide it.
+    - **Two switches** (24px, 6px radius, the choice on `t.selected`), both kept per copy of the panel:
+      **Used by | Uses** walks the other way, and **All steps | Direct only** keeps only what is one step
+      away, on the chart and in the section.
+    - **The counts:** "14 parts and 52 files depend on it" (or "it relies on"; "Nothing on the chart depends
+      on it."), and in 11px `t.dim` "From the imports and requests the scan found."
+    - **The groups:** "Directly", "Through one more", "Through 2 more", each with its rows. A row has the
+      card's icon and name, its affected files, and what carries it: one step away, the import's names or
+      the endpoint (at most three, "+2"); further, "through" the card one step nearer, or that file's name
+      where no other card on the level holds it.
+    - **Elsewhere:** what is reached with no card on this level, by where it is ("Server › Requests").
+    - **Tests:** apart, last, as "Tests  6 files in 2 parts".
+
+    A row picks its card and keeps the source, so a chain can be followed. An Elsewhere row goes to the level
+    that holds its part. A row pointed at lights its card on the chart, and shows under it the chain back to
+    the source ("Home page → Server client → Tide times → Database client"); a chain longer than six keeps
+    its two ends ("… 12 more …").
+  - **A card the impact reaches,** when picked, says in a box in the accent's tint "Depends on Database
+    client · 2 steps" (turned round, "Database client relies on it"), its chain, and "Back to Database
+    client ›". On the chart, its tooltip is its chain.
 
   The source is kept apart from the card picked: the impact stays as the levels change, inside a part its
   files light one by one, and a card picked by hand becomes the source. `i`, `esc` or a click on the chart
@@ -233,6 +252,12 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   cards with their fewest steps and affected files, the source's cards, the lines towards the source, what has
   no card on the level by part (`elsewhere`), and `counts` (parts at the deepest, and files). On 20,000 files,
   in Herdr's QuickJS: 13 ms for the walk from the most used file, under 1 ms to place it on a level.
+  `impactOn` also keeps per card the file nearest the source (`ref`) and what it holds that is reached, and
+  takes `steps` to keep only what is that near (Direct only). `impactChain(chart, impact, ref)` names the
+  shortest chain back to the source from `from`. `impactSection(chart, level, impact, { directOnly })` gives
+  the details' section: title, counts, groups by steps with each row's files, chain and what carries it
+  (`labels`, or `names` on older charts) or the card it comes through, `elsewhere` with where each part is,
+  and `tests` apart. The panel keeps each placing and section per walk, level and Direct only.
 - `layout.js`: `elkLevel` (bands 0/1/2, card sizes per direction) and `fromElk` (zoom, centering, band
   labels); `layOut` is the plain fallback (rows of 132–240 × 52px cards, curved lines with arrowheads).
 - `chart.js`: `chartView` (cards; lines as `PathBuilder` paths through `window.paint_path`; port rings;
