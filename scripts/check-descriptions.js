@@ -31,7 +31,7 @@ const args = process.argv.slice(2);
 const isCompare = args.includes("--compare");
 const sampleAt = args.indexOf("--sample");
 const perFolder = sampleAt >= 0 ? Number(args[sampleAt + 1]) : 10;
-const folders = args.filter((arg, index) => !arg.startsWith("--") && index !== sampleAt + 1);
+const folders = args.filter((arg, index) => !arg.startsWith("--") && !(sampleAt >= 0 && index === sampleAt + 1));
 if (!folders.length) throw new Error("usage: bun scripts/check-descriptions.js [--sample 10] [--compare] <folder>...");
 
 // The files described in the folder's chart and unchanged since, in an order fixed by their paths.
