@@ -35,7 +35,12 @@ Everything sits on `t.chrome`, with 13px `t.foreground` text and 1px `t.border` 
   `t.solid_foreground` text). Errors: one 12px `t.blocked` line, such as "The last drawing failed: …".
 - **Body**: the chart and the details. From 900px wide, the details sit on the right (340px, left border);
   narrower, under the chart (36% of the height, kept between 150px and 300px, top border). Folded, the chart
-  gets the whole width.
+  gets the whole width. Their edge can be dragged (`detailsSize` in `layout.js`): from 260px to half the
+  panel's width beside the chart, from 120px to 60% of its height under it, a size dragged on a bigger panel
+  kept within the smaller one. The edge is a 6px strip over the border, with a column or row resize cursor,
+  whose 1px line is `t.accent` while pointed at or dragged; a double-click puts the default size back. The
+  details follow the pointer, and the chart is laid out again once, when the drag ends. The panel's own
+  strip, not Herdr's `h_resizable`, whose handle takes neither a double-click nor the theme's accent.
 - **Status bar, 28px** (11.8px `t.dim`, top border): only the keys that work now, joined by "  ·  ", such
   as "↑↓ pick · / search · ↵ inside · ⌫ up · −+ zoom · a ask · e explain · d details on · p project · u update".
 
@@ -170,6 +175,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   default, no `--model`), remembered per copy in `localStorage`. "Explain this" always runs on `sonnet` (or
   `$CHARTROOM_DESCRIBE_MODEL`), whatever the list says.
 - **Details.** `d` folds them away or back, remembered. Picking a new card with the mouse unfolds them.
+  Dragging their edge sizes them, remembered too; folded and back, they keep the size dragged to.
 - **Remote project** (a space on another machine): the chart is read there every 15s (no folder watch) and
   the changed check runs there too. Drawing, asking and explaining are off ("Drawing a chart needs the
   project on this computer.", "Asking about a chart needs the project on this computer.").
@@ -216,7 +222,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   settings, spaces, theme, watchFolder`. Commands: `tab.new {space, name: "Chartroom", mod: "chartroom",
   props}`, `tab.select`, `layout.hide {id: "chartroom"}`, `pane.focus`, `pane.go`.
   `watchFolder(<folder>/.chartroom)` reads again on changes to `chart.json`, `progress.json` or `pid`.
-  `localStorage`, one per copy, keeps `pinned`, `picked` and `detailsFolded`.
+  `localStorage`, one per copy, keeps `pinned`, `picked`, `detailsFolded`, `detailsWidth` and `detailsHeight`.
 - Programs: `sh`, `bun`, `git`, `ps`, `kill`, `claude`. The `draw/` pipeline, `bun draw/draw.js <folder>
   [--update]`: **scan** (no Claude; `git ls-files`, imports resolved for JS/TS, Python, Go, PHP, Java,
   Kotlin and Rust, web requests matched to the endpoints that answer them), **parts** (one `claude -p` with Read,
