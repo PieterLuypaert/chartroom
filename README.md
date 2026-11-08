@@ -20,17 +20,17 @@ Go inside a part to see its files:
 
 ## Features
 
-| Feature | What you get | How |
-|---|---|---|
-| **Explore** | Each level in three bands: what uses a part, what is inside it, what it uses. Lines show what uses what. | Double-click or `↵` to go inside, `⌫` to go up; scroll to zoom, drag to move |
-| **Find** | Go straight to a part or file by its name, a path, or a route such as `GET /orders`. | `/` or the search box |
-| **Impact** | Everything that depends on the card picked, any number of steps away, lit on the chart. The details group it by step and show the chain back to it. No Claude needed, so it is instant. | `i` or **Show impact** |
-| **Explain** | Your Claude explains any card: what it does and how it fits in. | `e` |
-| **Ask** | Ask about a card or a level, and see the cards in the answer lit on the chart. Pick the model it is asked on. | `a`, `m` for the model |
-| **Stay current** | The panel sees when the code moves on. An update re-describes only the files that changed, and keeps the explanations of the rest. | `u` or **Update** |
-| **Draw again** | The parts named anew and every file described again. It says the files, calls and time first, and the chart stays until the new one is done. | `⇧U` or the menu beside **Update** |
-| **Details** | What a card or level holds, beside the chart or under it. Drag their edge to resize them, or fold them away. | `d` |
-| **Fits in** | Follows the focused space or any project you pick, full size in a tab or as a side panel, in your Herdr theme's colors. | `p`, `f`, `⌥⌘F`, `⌥⇧⌘F` |
+| Feature | What you get |
+|---|---|
+| **Explore** | Each level in three bands: what uses a part, what is inside it, what it uses. Lines show what uses what. Double-click a card to go inside, scroll to zoom, drag to move. |
+| **Find** | Go straight to a part or file by its name, a path, or a route such as `GET /orders`. |
+| **Impact** | Everything that depends on the card picked, any number of steps away, lit on the chart. The details group it by step and show the chain back to it. No Claude needed, so it is instant. |
+| **Explain** | Your Claude explains any card: what it does and how it fits in. |
+| **Ask** | Ask about a card or a level, and see the cards in the answer lit on the chart. Pick the model it is asked on. |
+| **Stay current** | The panel sees when the code moves on. An update re-describes only the files that changed, and keeps the explanations of the rest. |
+| **Draw again** | The parts named anew and every file described again. It says the files, calls and time first, and the chart stays until the new one is done. |
+| **Details** | What a card or level holds, beside the chart or under it. Drag their edge to resize them, or fold them away. |
+| **Fits in** | Follows the focused space or any project you pick, full size in a tab or as a side panel, in your Herdr theme's colors. |
 
 ## Install
 
