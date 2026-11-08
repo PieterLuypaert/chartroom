@@ -55,7 +55,7 @@ export function describePrompt({ project, part, digests }) {
     part ? `These files are in its part "${part.label}": ${part.summary}` : "These files are in no part yet.",
     "",
     "For every file below, give a short name (two to five words, as the app's owner would say it: \"Checkout page\", \"Card payments\") and one sentence on what it does for the app and the people who use it, in plain everyday words. For every endpoint, the same: what asking it does. Use the path or key exactly as given, and answer for all of them.",
-    "Say only what the code and the facts shown say it does: all it defines and every test it holds are listed, so let the sentence cover the file as a whole, not only its first lines. Leave out what you could only guess from a file's name or folder.",
+    "Say only what the code and the facts shown say it does: all it defines and every test it holds are listed, so let the sentence cover the file as a whole, not only its first lines. Leave out what you could only guess from a file's name or folder, or from the name of a parameter or option: one counts only where the code shown uses it.",
     "",
     ...digests,
   ].join("\n");

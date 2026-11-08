@@ -82,5 +82,6 @@ describe("describePrompt", () => {
   test("asks Claude to say only what the code and the facts shown say a file does", () => {
     const prompt = describePrompt({ project: { name: "Tide Tables", summary: "Tides." }, part: null, digests: [] });
     expect(prompt).toContain("Say only what the code and the facts shown say it does");
+    expect(prompt).toContain("or from the name of a parameter or option: one counts only where the code shown uses it");
   });
 });
