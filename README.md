@@ -14,11 +14,17 @@ Go inside a part to see its files:
 
 ## Features
 
-- **Explore**: each level in three bands (what uses a part, what is inside it, what it uses). Double-click a card to go inside, scroll to zoom, drag to move.
-- **Find**: press `/` or click the search box in the header, type a part's or file's name, a path or a route such as `GET /orders`, and go straight to its card.
-- **Explain and ask**: have Claude explain any card, or ask it about a card or level and see the cards in its answer lit on the chart.
-- **Stay current**: an update re-describes only the files that changed, and keeps the explanations of the rest.
-- **Fits in**: follows the focused space or any project you pick, in your Herdr theme's colors.
+| Feature | What you get | How |
+|---|---|---|
+| **Explore** | Each level in three bands: what uses a part, what is inside it, what it uses. Lines show what uses what. | Double-click or `↵` to go inside, `⌫` to go up; scroll to zoom, drag to move |
+| **Find** | Go straight to a part or file by its name, a path, or a route such as `GET /orders`. | `/` or the search box |
+| **Impact** | Everything that depends on the card picked, any number of steps away, lit on the chart. The details group it by step and show the chain back to it. No Claude needed, so it is instant. | `i` or **Show impact** |
+| **Explain** | Your Claude explains any card: what it does and how it fits in. | `e` |
+| **Ask** | Ask about a card or a level, and see the cards in the answer lit on the chart. Pick the model it is asked on. | `a`, `m` for the model |
+| **Stay current** | The panel sees when the code moves on. An update re-describes only the files that changed, and keeps the explanations of the rest. | `u` or **Update** |
+| **Draw again** | The parts named anew and every file described again. It says the files, calls and time first, and the chart stays until the new one is done. | `⇧U` or the menu beside **Update** |
+| **Details** | What a card or level holds, beside the chart or under it. Drag their edge to resize them, or fold them away. | `d` |
+| **Fits in** | Follows the focused space or any project you pick, full size in a tab or as a side panel, in your Herdr theme's colors. | `p`, `f`, `⌥⌘F`, `⌥⇧⌘F` |
 
 ## Install
 
@@ -36,7 +42,18 @@ This links the mod, binds its keys and adds a **Chartroom** button to your layou
 
 Click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
 
-`↑` `↓` pick · `↵` `⌫` in and up · `/` find · `e` explain · `a` ask · `d` details · `−` `+` `0` zoom · `u` update · `⇧U` draw again · `p` project
+| Keys | What they do |
+|---|---|
+| `↑` `↓` | Pick a card |
+| `↵` · `⌫` | Go inside · go up |
+| `/` | Find |
+| `i` | Impact of the card picked |
+| `e` · `a` · `m` | Explain · ask · the model to ask on |
+| `d` | Details on or off |
+| `−` `+` · `0` | Zoom · fit |
+| `u` · `⇧U` | Update · draw again from scratch |
+| `p` | Pick a project |
+| `f` · `esc` | Full size · back up, or close |
 
 ## How it works
 
