@@ -146,9 +146,10 @@ export default class Chartroom extends View {
     this.views = new Map();
     this.size = { width: 460, height: 600 };
     this.hasSize = false;
-    // ELK's layouts by level, those asked for and not back yet, which chart they are of, and the
-    // latest run laying levels out ahead.
-    Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, zoom: null, hovered: null, aheadCount: 0 });
+    // ELK's layouts by level, those asked for and not back yet, which chart they are of (a number
+    // never given to another chart, the last one given in lastVersion), and the latest run laying
+    // levels out ahead.
+    Object.assign(this, { layouts: new Map(), laying: new Set(), chartVersion: 0, lastVersion: 0, zoom: null, hovered: null, aheadCount: 0 });
     // The plain layouts of the levels ELK could not lay out, by level, and the ones being worked out.
     Object.assign(this, { plain: new Map(), plainLaying: new Set() });
     // Questions: the answers of the project showing (each listed only with the card or level it was
@@ -267,8 +268,9 @@ export default class Chartroom extends View {
     return this.pinned ? { cwd: this.pinned.folder, on: this.pinned.on ?? null, space: null } : location();
   }
 
-  // A place seen before comes back as it was left. A new one keeps what shows until its read says
-  // whether it is the same project (a cd inside it keeps the level and the card picked) or another.
+  // A place seen before comes back as it was left: its chart with that chart's own layouts, zoom,
+  // pan and how far its code had moved on. A new one keeps what shows until its read says whether it
+  // is the same project (a cd inside it keeps the level and the card picked) or another.
   moveTo(context, place) {
     if (this.context) this.remember();
     const view = this.views.get(context);
@@ -286,7 +288,10 @@ export default class Chartroom extends View {
 
   remember() {
     this.views.delete(this.context);
-    this.views.set(this.context, { folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, stamp: this.stamp, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected });
+    this.views.set(this.context, {
+      folder: this.folder, kind: this.kind, chart: this.chart, text: this.text, stamp: this.stamp, progress: this.progress, log: this.log, isDrawing: this.isDrawing, focus: this.focus, selected: this.selected,
+      chartVersion: this.chartVersion, layouts: this.layouts, plain: this.plain, zoom: this.zoom, pan: this.pan, changed: this.changed,
+    });
     while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value);
   }
 
@@ -612,7 +617,7 @@ export default class Chartroom extends View {
     this.text = text;
     this.stamp = stamp;
     if (!this.chart.nodes.has(this.focus)) this.focus = null;
-    this.chartVersion += 1;
+    this.chartVersion = ++this.lastVersion;
     this.impact = null;
     this.impactAsked += 1;
     this.layouts = new Map();
