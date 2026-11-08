@@ -12,10 +12,9 @@ import { v_flex, h_flex, InputState, Popup, VirtualListScrollHandle } from "gpui
 import { appHome, exec, focused, home, layout, nextCommand, notify, panes, pickFolder, props, run, settings, spaces, theme, watchFolder } from "herdr";
 import { cardIdOn, detailsOf, isExplanationCurrent, isLevelReady, levelInSlices, levelOf, pickerItems, projectsOf, readChartInSlices } from "./model.js";
 import { elkLevel, fromElk, headingType, layOut } from "./layout.js";
-import { chartView, detailsView, minimapView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
+import { chartView, detailsView, prebuildLines, SEARCH_KEYS, searchBox } from "./chart.js";
 import { searchChart, searchIndexInSlices } from "./search.js";
 import { isModelName, MODELS } from "./models.js";
-import { grabOf, hasRoomFor, minimapOf, panAt } from "./minimap.js";
 import { asksFor, asksFrom, CHANGED, chartedFrom, chartInParts, explainKey, FIND_ASKS, FIND_EXPLAIN, FIND_CHARTS, FIND_MAP, mapFrom, START_ASK, START_DRAW, STOP_ASK, STOP_DRAW } from "./find.js";
 import { pickerRows, projectList } from "./projects.js";
 import { changedStrip, endedWords, firstDrawing, stepWords, updateStrip } from "./drawing.js";
@@ -179,8 +178,8 @@ export default class Chartroom extends View {
     cx.bind_keys(SEARCH_KEYS);
     // Moving around the chart: how far it is moved, a drag underway, and the sizes that bound it.
     Object.assign(this, { pan: { x: 0, y: 0 }, drag: null, didDrag: false, viewSize: null, isWheeling: false, wheelCount: 0 });
-    // The minimap: a drag on it underway, whether the pointer is on it, and the wide view's heading height.
-    Object.assign(this, { minimapDrag: null, isOnMinimap: false, headingHeight: null });
+    // The height of the heading over a wide view's chart, as last measured.
+    this.headingHeight = null;
     Object.assign(this, { levelCount: 0, litCount: 0, moveCount: 0, isEntering: false, isLitEntering: false, isMoving: false });
     this.handle = cx.focus_handle();
     Object.assign(this, { folder: null, kind: "none", chart: null, text: null, stamp: null, progress: null, log: "", isDrawing: false, focus: null, selected: null });
@@ -672,7 +671,6 @@ export default class Chartroom extends View {
   }
 
   dragged(e, cx) {
-    if (this.minimapDrag) return this.minimapMoved(e.position, cx);
     if (!this.drag) return;
     const dx = e.position.x - this.drag.x;
     const dy = e.position.y - this.drag.y;
@@ -683,55 +681,14 @@ export default class Chartroom extends View {
   }
 
   released(cx) {
-    if (!this.drag && !this.minimapDrag) return;
+    if (!this.drag) return;
     this.drag = null;
-    this.minimapDrag = null;
     cx.notify();
   }
 
   // The size of the chart's area, in the points it draws in.
   visible() {
     return this.viewSize ?? { width: this.chartWidth(), height: this.size.height };
-  }
-
-  // The minimap of the level shown, or null without ELK's layout or room for it.
-  minimap(view) {
-    const visible = this.visible();
-    if (!view?.laid?.lines || !hasRoomFor(visible)) return null;
-    const top = this.isWide() ? this.headingNow() : 0;
-    return minimapOf(view.laid.cards, { view: visible, pan: this.pan, top });
-  }
-
-  // A press on the minimap moves the view there, and held it drags the view along; a press on the
-  // frame in view keeps it under the pointer. It is no press on the chart under it. Its place is
-  // read as a share of the minimap's size, so the app's zoom does not matter.
-  minimapPressed(e, cx) {
-    cx.stop_propagation();
-    this.handle.focus();
-    const map = this.minimap(this.memo);
-    if (!map || !e.local_position || !e.bounds?.width || !e.bounds?.height) return;
-    const origin = { x: e.position.x - e.local_position.x, y: e.position.y - e.local_position.y };
-    const scale = { x: map.width / e.bounds.width, y: map.height / e.bounds.height };
-    const point = { x: e.local_position.x * scale.x, y: e.local_position.y * scale.y };
-    this.minimapDrag = { origin, scale, grab: grabOf(map, point) };
-    this.minimapMoved(e.position, cx);
-  }
-
-  minimapMoved(position, cx) {
-    const map = this.minimap(this.memo);
-    if (!map) return;
-    const { origin, scale, grab } = this.minimapDrag;
-    const point = { x: (position.x - origin.x) * scale.x - grab.x, y: (position.y - origin.y) * scale.y - grab.y };
-    const to = panAt(map, point, this.visible());
-    this.panTo(to.x, to.y);
-    cx.notify();
-  }
-
-  // The pointer on the minimap lights no card under it.
-  minimapHovered(isHovered, cx) {
-    this.isOnMinimap = isHovered;
-    if (isHovered) this.hovered = null;
-    cx.notify();
   }
 
   headingSized(size, cx) {
@@ -752,7 +709,6 @@ export default class Chartroom extends View {
 
   // A card under the pointer lights its lines.
   hover(id, isHovered, cx) {
-    if (isHovered && this.isOnMinimap) return;
     const next = isHovered ? id : this.hovered === id ? null : this.hovered;
     if (next === this.hovered) return;
     this.hovered = next;
@@ -1476,7 +1432,6 @@ export default class Chartroom extends View {
     const aside = detailsView({ t, details, level: view.level, chart: this.chart, onPick, onOpen: (card, cx) => this.open(card, cx), ask: this.askView(), explain });
     const body = isWide ? h_flex() : v_flex();
     const isDragging = Boolean(this.drag && this.didDrag);
-    const map = this.minimap(view);
     // The chart is a map to move around: dragged anywhere, a card too, or moved with the wheel.
     return body.flex_1().min_h(0).min_w(0)
       .child(div().id("chart").flex_1().h_full().min_h(0).min_w(0).relative().overflow_hidden()
@@ -1493,9 +1448,7 @@ export default class Chartroom extends View {
         .on_hover((isHovered, cx) => !isHovered && this.released(cx))
         .child(v_flex().absolute().left(-this.pan.x).top(-this.pan.y)
           .when(isWide && Boolean(view.laid), (el) => el.child(this.heading(t, view.level)))
-          .child(this.canvas(t, view)))
-        .when(Boolean(map), (el) => el.child(minimapView({ t, map, selected: this.selected, lighted: this.lighted(), isDragging: Boolean(this.minimapDrag),
-          onPress: (e, cx) => this.minimapPressed(e, cx), onHover: (isHovered, cx) => this.minimapHovered(isHovered, cx) }))))
+          .child(this.canvas(t, view))))
       .when(isWide && !this.detailsFolded, (el) => el.child(div().flex_none().w(DETAILS_WIDTH).h_full().border_l(1).border_color(t.border).child(aside)))
       .when(!isWide && !this.detailsFolded, (el) => el.child(div().flex_none().h(Math.round(Math.min(300, Math.max(150, this.size.height * 0.36)))).border_t(1).border_color(t.border).child(aside)));
   }

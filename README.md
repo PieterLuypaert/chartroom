@@ -14,7 +14,7 @@ Go inside a part to see its files:
 
 ## Features
 
-- **Explore**: each level in three bands (what uses a part, what is inside it, what it uses). Double-click a card to go inside, scroll to zoom, drag or use the minimap to move.
+- **Explore**: each level in three bands (what uses a part, what is inside it, what it uses). Double-click a card to go inside, scroll to zoom, drag to move.
 - **Find**: press `/` or click the search box in the header, type a part's or file's name, a path or a route such as `GET /orders`, and go straight to its card.
 - **Explain and ask**: have Claude explain any card, or ask it about a card or level and see the cards in its answer lit on the chart.
 - **Stay current**: an update re-describes only the files that changed, and keeps the explanations of the rest.
