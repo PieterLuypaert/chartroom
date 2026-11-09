@@ -125,7 +125,7 @@ add_blocks() {
   jq -f "$here/layout.jq" "$file.old-$stamp" >"$file.tmp" || { rm -f "$file.tmp"; fail "could not add the panel to $name"; }
   mv "$file.tmp" "$file"
   jq -e '[.. | objects | select(.id? == "chartroom-button")] | length > 0' "$file" >/dev/null \
-    || echo "layout: $name has no tab bar (a block with id \"tabs\"), so it gets the panel without the button" >&2
+    || echo "layout: $name has no tab bar (a block with id \"tabs\", or drawn by the tabs or terminals-bar mod), so it gets the panel without the button. To add it yourself, put this block at the end of your tab bar's row: {\"id\": \"chartroom-button\", \"type\": \"block\", \"size\": {\"px\": 108}, \"window_drag\": true, \"content\": {\"mod\": \"chartroom\", \"props\": {\"button\": true}}}" >&2
   echo "layout: added the panel and the button to $name ($name.json was kept as $name.json.old-$stamp)"
 }
 

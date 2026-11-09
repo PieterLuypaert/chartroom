@@ -198,7 +198,9 @@ describe("install.sh on a layout whose root is not a row", () => {
   test("gives a layout with no tab bar the panel without the button, and says so", () => {
     const dir = freshHome({ name: "desktop", layout: DESKTOP, isShipped: false });
     const run = installFresh(dir);
-    expect(run).toMatchObject({ code: 0, err: expect.stringContaining("layout: desktop has no tab bar") });
+    expect(run.code).toBe(0);
+    expect(run.err).toContain("layout: desktop has no tab bar");
+    expect(run.err).toContain('To add it yourself, put this block at the end of your tab bar\'s row: {"id": "chartroom-button"');
     const layout = JSON.stringify(appJson(dir, "layouts/desktop.json"));
     expect(layout).toContain('"id":"chartroom"');
     expect(layout).not.toContain('"id":"chartroom-button"');
@@ -212,5 +214,28 @@ describe("install.sh on a layout whose root is not a row", () => {
     expect(run.log).not.toContain("layout.clone");
     expect(existsSync(join(dir, "app", "mods", "chartroom"))).toBe(false);
     expect(existsSync(join(dir, "app", "keys.json"))).toBe(false);
+  });
+});
+
+// A layout of the person's own whose tab bar is not called tabs.
+const tabBar = (id, mod = "tabs") => ({ id, type: "block", size: { px: 30 }, content: { mod } });
+const ownLayout = (...bars) => ({ id: "root", type: "row", children: [{ id: "work", type: "column", children: [...bars, { id: "panes", type: "block", content: { tab: "active" } }] }] });
+const rowsOf = (layout) => JSON.stringify(layout).match(/"id":"tabs-row"/g)?.length ?? 0;
+
+describe("install.sh finding the tab bar", () => {
+  test("finds it by the mod that draws it, whatever its id", () => {
+    const dir = freshHome({ name: "mine", layout: ownLayout(tabBar("top-bar")), isShipped: false });
+    expect(installFresh(dir).code).toBe(0);
+    const work = appJson(dir, "layouts/mine.json").children[0];
+    expect(work.children[0]).toMatchObject({ id: "tabs-row", size: { px: 30 } });
+    expect(work.children[0].children.map((one) => one.id)).toEqual(["top-bar", "chartroom-button"]);
+  });
+
+  test("puts the button in one tab bar only, the one called tabs first", () => {
+    const dir = freshHome({ name: "mine", layout: ownLayout(tabBar("top-bar"), tabBar("tabs", "terminals-bar")), isShipped: false });
+    installFresh(dir);
+    const layout = appJson(dir, "layouts/mine.json");
+    expect(rowsOf(layout)).toBe(1);
+    expect(layout.children[0].children[1].children.map((one) => one.id)).toEqual(["tabs", "chartroom-button"]);
   });
 });

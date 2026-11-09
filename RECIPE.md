@@ -340,8 +340,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `theme`, `background`, `padding` and the like), and the window it held moves into its first child,
   `chartroom-wrap` (weight 1), with `type`, `children`, `gap`, `divider`, `resizable`, `active`, `header`,
   `content` and `window_drag`. A row root is left as it was. It appends the panel `{id: "chartroom", hidden: true,
-  size: {px: 460}, min: 340, max: 600, content: {mod: "chartroom"}}`, and wraps the `tabs` block in a
-  `tabs-row` row (not resizable): the tabs at weight 1, then `{id: "chartroom-button", size: {px: 108},
+  size: {px: 460}, min: 340, max: 600, content: {mod: "chartroom"}}`, and wraps the tab bar (the block called
+  `tabs`, else the first block drawn by Herdr's `tabs` or `terminals-bar` mod; one only) in a `tabs-row` row
+  (not resizable): the tabs at weight 1, then `{id: "chartroom-button", size: {px: 108},
   window_drag: true, content: {mod: "chartroom", props: {button: true}}}`. Where the Quarterdeck's panel or
   button is there already, each goes just before it.
 
@@ -355,8 +356,9 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   checkout.
 - Herdr replaces its own layouts (main, terminals, win98; `layout:<name>` in `installed.json`) on every
   start. `install.sh` puts the Chartroom into a copy of one, `<name>-chart`, which needs the app open.
-- Only the button copy acts on `chartroom.full`: a layout without a `tabs` block gets the panel and no
-  button, and ⌥⌘F does nothing there (`f` in the panel still opens full size).
+- Only the button copy acts on `chartroom.full`: a layout without a tab bar the install can find gets the
+  panel and no button, and ⌥⌘F does nothing there (`f` in the panel still opens full size). `install.sh`
+  then prints the button's block, to put at the end of the tab bar's row by hand.
 - Icons come from `mods/workspace-chrome/*.svg`: the app draws no asset reached through the symlink.
 - Colors come only from `theme()` names, so it follows any theme, light or dark. Accent tints append an
   alpha to `#rrggbb`; an accent that already has an alpha makes those fills solid.
