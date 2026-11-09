@@ -89,12 +89,17 @@ narrow_panel() {
   echo "layout: the panel in $name is at most 600 px wide now ($name.json was kept as $name.json.old-$stamp)"
 }
 
-# The layout the Chartroom goes into, in $layout. One of Herdr's own is replaced on every start, so
-# it goes into a copy, <name>-chart: made with layout.clone, which also shows it, or shown when an
-# earlier install made it. Both need the app open; with it closed, nothing is changed.
+# The layout the Chartroom goes into, in $layout. It is tried first, so a layout that cannot take
+# the Chartroom changes nothing. One of Herdr's own is replaced on every start, so it goes into a
+# copy, <name>-chart: made with layout.clone, which also shows it, or shown when an earlier install
+# made it. Both need the app open; with it closed, nothing is changed.
 own_layout() {
   layout=$1
   [ -f "$app_home/layouts/$layout.json" ] || fail "there is no layout $app_home/layouts/$layout.json"
+  if ! jq -e '[.. | objects | select(.id? == "chartroom")] | length > 0' "$app_home/layouts/$layout.json" >/dev/null 2>&1; then
+    why=$(jq -f "$here/layout.jq" "$app_home/layouts/$layout.json" 2>&1 >/dev/null) \
+      || fail "the Chartroom cannot go into $layout: $(echo "$why" | sed 's/^jq: error (at [^)]*): //')"
+  fi
   jq -e --arg n "layout:$layout" 'has($n)' "$app_home/installed.json" >/dev/null 2>&1 || return 0
   copy="$layout-chart"
   if ! "$herdr" status >/dev/null 2>&1; then
