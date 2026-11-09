@@ -333,7 +333,13 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   `~/.config/herdr-app/mods/chartroom` to the checkout's `mods/chartroom`, runs `bun install
   --frozen-lockfile`, merges the keys (free keys added, keys still on `chartroom.*` or
   `layout.toggle:chartroom` moved, any other binding left alone, the person's file kept as a backup, none
-  when it makes the file), runs `layout.jq` on the layout, and ends with `herdr-app check`. `layout.jq` needs a row root. It appends the panel `{id: "chartroom", hidden: true,
+  when it makes the file), runs `layout.jq` on the layout, and ends with `herdr-app check`. It tries
+  `layout.jq` on the layout before anything else, so one that cannot take the Chartroom (a root with no
+  id) changes nothing, not even a copy. A root that is not a row (Herdr's own `terminals` and `win98` are
+  columns) is made one: the root keeps the layout's settings and look (`titlebar`, `traffic_lights`,
+  `theme`, `background`, `padding` and the like), and the window it held moves into its first child,
+  `chartroom-wrap` (weight 1), with `type`, `children`, `gap`, `divider`, `resizable`, `active`, `header`,
+  `content` and `window_drag`. A row root is left as it was. It appends the panel `{id: "chartroom", hidden: true,
   size: {px: 460}, min: 340, max: 600, content: {mod: "chartroom"}}`, and wraps the `tabs` block in a
   `tabs-row` row (not resizable): the tabs at weight 1, then `{id: "chartroom-button", size: {px: 108},
   window_drag: true, content: {mod: "chartroom", props: {button: true}}}`. Where the Quarterdeck's panel or
