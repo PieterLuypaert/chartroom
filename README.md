@@ -49,7 +49,7 @@ cd chartroom
 ./install.sh
 ```
 
-This links the mod, binds its keys and adds a **Chartroom** button to your layout's tab bar. Herdr replaces its built-in layouts on every start, so use one of your own: `install.sh` tells you how. After pulling, run `./install.sh` again and restart Herdr.
+Run it with the Herdr app open. It links the mod, binds its keys and adds a **Chartroom** button to your layout's tab bar. Herdr replaces its own layouts on every start, so when one of those is shown, `install.sh` puts the Chartroom into a copy of it, such as `main-chart`, and shows that. After pulling, run `./install.sh` again and restart Herdr.
 
 Then click **Chartroom** or press `⌥⌘F`; `⌥⇧⌘F` opens it as a side panel. In a project without a chart, click **Draw the chart**.
 

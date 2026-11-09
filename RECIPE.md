@@ -324,11 +324,16 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
   answer fails saying so. `lay.js '<levels json>'` runs ELK
   (layered, partitioned by band, orthogonal edges, fixed-side ports) and prints `{layouts}`.
 - `keys.json`: `"global": { "cmd-alt-f": "chartroom.full", "cmd-alt-shift-f": "layout.toggle:chartroom" }`.
-- `install.sh [layout]` needs `jq`, `bun` and `herdr-app`. It symlinks `~/.config/herdr-app/mods/chartroom`
-  to the checkout's `mods/chartroom`, runs `bun install --frozen-lockfile`, merges the keys (free keys
-  added, keys still on `chartroom.*` or `layout.toggle:chartroom` moved, any other binding left alone, the
-  old file kept as a backup), runs `layout.jq` on the shown layout (or the one named), and ends with
-  `herdr-app check`. `layout.jq` needs a row root. It appends the panel `{id: "chartroom", hidden: true,
+- `install.sh [layout]` needs `jq`, `bun` and `herdr-app` (from the PATH, else `~/.local/bin`, which a new
+  macOS terminal does not search), each missing one named with where to get it, and warns when `claude` is
+  not on the PATH. It picks the layout first (the shown one, or the one named): one of Herdr's own
+  (`layout:<name>` in `installed.json`) is swapped for a copy, `<name>-chart`, made with `layout.clone`
+  (which shows it) or, when an earlier install made it, shown with `layout.switch`; both need the app open,
+  so with it closed it changes nothing and says to open the app. Then it symlinks
+  `~/.config/herdr-app/mods/chartroom` to the checkout's `mods/chartroom`, runs `bun install
+  --frozen-lockfile`, merges the keys (free keys added, keys still on `chartroom.*` or
+  `layout.toggle:chartroom` moved, any other binding left alone, the person's file kept as a backup, none
+  when it makes the file), runs `layout.jq` on the layout, and ends with `herdr-app check`. `layout.jq` needs a row root. It appends the panel `{id: "chartroom", hidden: true,
   size: {px: 460}, min: 340, max: 600, content: {mod: "chartroom"}}`, and wraps the `tabs` block in a
   `tabs-row` row (not resizable): the tabs at weight 1, then `{id: "chartroom-button", size: {px: 108},
   window_drag: true, content: {mod: "chartroom", props: {button: true}}}`. Where the Quarterdeck's panel or
@@ -343,7 +348,7 @@ Nothing in the details is under 11px. Herdr has no text size setting for mods: i
 - Herdr does not hot-reload a mod through that symlink: restart the app after changing or switching the
   checkout.
 - Herdr replaces its own layouts (main, terminals, win98; `layout:<name>` in `installed.json`) on every
-  start. `install.sh` refuses them and prints the `layout.clone` command to run first.
+  start. `install.sh` puts the Chartroom into a copy of one, `<name>-chart`, which needs the app open.
 - Only the button copy acts on `chartroom.full`: a layout without a `tabs` block gets the panel and no
   button, and ⌥⌘F does nothing there (`f` in the panel still opens full size).
 - Icons come from `mods/workspace-chrome/*.svg`: the app draws no asset reached through the symlink.
