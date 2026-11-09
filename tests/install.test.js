@@ -73,16 +73,16 @@ const SHIPPED = { id: "root", type: "row", children: [{ id: "work", type: "colum
 const homes = [];
 afterAll(() => homes.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-function freshHome({ keys = null } = {}) {
+function freshHome({ keys = null, name = "main", layout = SHIPPED, isShipped = true } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "chartroom-fresh-")));
   homes.push(dir);
   const write = (path, value) => {
     mkdirSync(join(dir, path, ".."), { recursive: true });
     writeFileSync(join(dir, path), JSON.stringify(value));
   };
-  write("app/layouts/main.json", SHIPPED);
-  write("app/installed.json", { "layout:main": { json: "1" } });
-  write("app/shared.json", { layout: "main" });
+  write(`app/layouts/${name}.json`, layout);
+  write("app/installed.json", isShipped ? { [`layout:${name}`]: { json: "1" } } : {});
+  write("app/shared.json", { layout: name });
   if (keys) write("app/keys.json", keys);
   mkdirSync(join(dir, "app", "mods"));
   return dir;
@@ -169,5 +169,48 @@ describe("install.sh in a fresh Herdr home", () => {
     expect(run.code).toBe(0);
     expect(run.log).toContain(`check ${join(dir, "app")}/mods/chartroom`);
     expect(run.err).toContain("install: no claude on the PATH: drawing a chart needs the Claude Code CLI, logged in");
+  });
+});
+
+// Herdr's own terminals and win98 layouts have a column at their root, with the layout's settings on
+// it; terminals has its tab bar in a block called tabs, win98 none.
+const TERMINALS = {
+  id: "root", type: "column", theme: "ink", titlebar: "none", traffic_lights: [14, 14], padding: 8, gap: 6, background: "surface",
+  children: [{ id: "tabs", type: "block", size: { px: 38 }, window_drag: true, content: { mod: "terminals-bar" } }, { id: "main", type: "block", content: { tab: "active" } }],
+};
+const DESKTOP = { id: "root", type: "column", theme: "paper", children: [{ id: "screen", type: "row", children: [] }, { id: "taskbar", type: "block", size: { px: 40 }, content: { mod: "win98" } }] };
+
+describe("install.sh on a layout whose root is not a row", () => {
+  test("puts the window in a row with the panel beside it, the layout's settings kept on the root", () => {
+    const dir = freshHome({ name: "terminals", layout: TERMINALS });
+    expect(installFresh(dir)).toMatchObject({ code: 0, out: expect.stringContaining("a copy, terminals-chart, shown now") });
+    const copy = appJson(dir, "layouts/terminals-chart.json");
+    expect(copy).toMatchObject({ id: "root", type: "row", theme: "ink", titlebar: "none", traffic_lights: [14, 14], padding: 8, background: "surface" });
+    expect(copy.gap).toBeUndefined();
+    expect(copy.children.map((one) => one.id)).toEqual(["chartroom-wrap", "chartroom"]);
+    expect(copy.children[0]).toMatchObject({ type: "column", gap: 6, size: { weight: 1 } });
+    expect(copy.children[0].children.map((one) => one.id)).toEqual(["tabs-row", "main"]);
+    expect(copy.children[0].children[0].children.map((one) => one.id)).toEqual(["tabs", "chartroom-button"]);
+    expect(copy.children[1]).toMatchObject({ hidden: true, content: { mod: "chartroom" } });
+    expect(appJson(dir, "layouts/terminals.json")).toEqual(TERMINALS);
+  });
+
+  test("gives a layout with no tab bar the panel without the button, and says so", () => {
+    const dir = freshHome({ name: "desktop", layout: DESKTOP, isShipped: false });
+    const run = installFresh(dir);
+    expect(run).toMatchObject({ code: 0, err: expect.stringContaining("layout: desktop has no tab bar") });
+    const layout = JSON.stringify(appJson(dir, "layouts/desktop.json"));
+    expect(layout).toContain('"id":"chartroom"');
+    expect(layout).not.toContain('"id":"chartroom-button"');
+  });
+
+  test("changes nothing when the layout cannot take the Chartroom, not even a copy", () => {
+    const dir = freshHome({ name: "odd", layout: [] });
+    const run = installFresh(dir);
+    expect(run.code).toBe(1);
+    expect(run.err).toContain("the Chartroom cannot go into odd: it is not a layout: its root has no id");
+    expect(run.log).not.toContain("layout.clone");
+    expect(existsSync(join(dir, "app", "mods", "chartroom"))).toBe(false);
+    expect(existsSync(join(dir, "app", "keys.json"))).toBe(false);
   });
 });
