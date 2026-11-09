@@ -2,10 +2,11 @@
 # Puts the Chartroom into the Herdr app: links the mod into ~/.config/herdr-app/mods, binds
 # cmd-alt-f (full size) and cmd-alt-shift-f (the panel) in keys.json, and adds the panel and the
 # tab bar's button to a layout of your own.
-# Herdr replaces its own layouts (main, terminals, win98) on every start, so for one of those it
-# says how to clone it first. Run it again any time, after a pull too: the mod is linked anew (from
-# whichever chartroom checkout runs it), keys and layouts already set are left alone, and every
-# file it changes is kept beside it first.
+# Herdr replaces its own layouts (main, terminals, win98) on every start, so for one of those the
+# Chartroom goes into a copy, <name>-chart, which it makes and shows while the app is open. Run it
+# again any time, after a pull too: the mod is linked anew (from whichever chartroom checkout runs
+# it), keys and layouts already set are left alone, and every file it changes is kept beside it
+# first.
 #
 #   ./install.sh [layout]     the layout to add the panel to; default: the one shown now
 set -eu
@@ -16,8 +17,15 @@ stamp=$(date +%Y%m%d-%H%M%S)
 
 fail() { echo "install: $*" >&2; exit 1; }
 
-for tool in jq bun herdr-app; do command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on the PATH"; done
+# herdr-app, the Herdr app's command line: from the PATH, else from ~/.local/bin, which a new
+# terminal on macOS does not search.
+herdr=$(command -v herdr-app 2>/dev/null || true)
+if [ -z "$herdr" ] && [ -x "$HOME/.local/bin/herdr-app" ]; then herdr="$HOME/.local/bin/herdr-app"; fi
+[ -n "$herdr" ] || fail "needs herdr-app, the Herdr app's command line, on the PATH or in ~/.local/bin"
+command -v jq >/dev/null 2>&1 || fail "needs jq on the PATH (brew install jq)"
+command -v bun >/dev/null 2>&1 || fail "needs bun on the PATH (https://bun.sh)"
 [ -d "$app_home/layouts" ] || fail "no Herdr app at $app_home: open the app once first"
+command -v claude >/dev/null 2>&1 || echo "install: no claude on the PATH: drawing a chart needs the Claude Code CLI, logged in" >&2
 
 is_chartroom_link() {
   case "$(readlink "$1")" in
@@ -44,10 +52,11 @@ link_mod() {
 
 # Each key in keys.json: added when free, and moved to its new action when it still does one the
 # Chartroom gave it before (layout.toggle:chartroom or a chartroom.* command). A key the person
-# bound to something else is left alone. keys.json is kept beside it once before the first change.
+# bound to something else is left alone. keys.json is kept beside it once before the first change,
+# unless this makes it.
 add_keys() {
   keys="$app_home/keys.json" ours="$here/keys.json" kept=""
-  [ -f "$keys" ] || echo '{}' >"$keys"
+  if [ ! -f "$keys" ]; then echo '{}' >"$keys" && kept=new; fi
   for key in $(jq -r '.global | keys[]' "$ours"); do
     action=$(jq -r --arg k "$key" '.global[$k]' "$ours")
     bound=$(jq -r --arg k "$key" '.global[$k] // empty' "$keys")
@@ -62,7 +71,7 @@ add_keys() {
     mv "$keys.tmp" "$keys"
     echo "key: $key does $action${bound:+ (it did $bound)}"
   done
-  if [ -n "$kept" ]; then echo "key: keys.json was kept as keys.json.backup-$stamp"; fi
+  if [ "$kept" = yes ]; then echo "key: keys.json was kept as keys.json.backup-$stamp"; fi
 }
 
 shown_layout() {
@@ -80,14 +89,32 @@ narrow_panel() {
   echo "layout: the panel in $name is at most 600 px wide now ($name.json was kept as $name.json.old-$stamp)"
 }
 
+# The layout the Chartroom goes into, in $layout. One of Herdr's own is replaced on every start, so
+# it goes into a copy, <name>-chart: made with layout.clone, which also shows it, or shown when an
+# earlier install made it. Both need the app open; with it closed, nothing is changed.
+own_layout() {
+  layout=$1
+  [ -f "$app_home/layouts/$layout.json" ] || fail "there is no layout $app_home/layouts/$layout.json"
+  jq -e --arg n "layout:$layout" 'has($n)' "$app_home/installed.json" >/dev/null 2>&1 || return 0
+  copy="$layout-chart"
+  if ! "$herdr" status >/dev/null 2>&1; then
+    fail "$layout is one of Herdr's own layouts, which Herdr replaces on every start, so the Chartroom goes into a copy of it, $copy. Open the Herdr app and run this again: it makes the copy and shows it."
+  fi
+  if [ -f "$app_home/layouts/$copy.json" ]; then
+    "$herdr" do layout.switch "{\"name\":\"$copy\"}" >/dev/null || fail "could not show $copy"
+    echo "layout: $layout is one of Herdr's own; showing $copy, the copy an earlier install made"
+  else
+    "$herdr" do layout.clone "{\"name\":\"$layout\",\"as\":\"$copy\"}" >/dev/null || fail "could not copy $layout to $copy"
+    tries=0
+    while [ ! -f "$app_home/layouts/$copy.json" ] && [ "$tries" -lt 50 ]; do sleep 0.1; tries=$((tries + 1)); done
+    [ -f "$app_home/layouts/$copy.json" ] || fail "Herdr did not write $copy"
+    echo "layout: $layout is one of Herdr's own, which it replaces on every start; the Chartroom goes into a copy, $copy, shown now (ctrl-shift-l switches layouts)"
+  fi
+  layout=$copy
+}
+
 add_blocks() {
   name=$1 file="$app_home/layouts/$1.json"
-  [ -f "$file" ] || fail "there is no layout $file"
-  if jq -e --arg n "layout:$name" 'has($n)' "$app_home/installed.json" >/dev/null 2>&1; then
-    echo "install: $name is one of Herdr's own layouts, which it replaces on every start. Clone it, then run this again:" >&2
-    echo "  herdr-app do layout.clone '{\"name\":\"$name\",\"as\":\"$name-chart\"}' && $0 $name-chart" >&2
-    exit 1
-  fi
   if jq -e '[.. | objects | select(.id? == "chartroom")] | length > 0' "$file" >/dev/null; then narrow_panel "$name" "$file"; return; fi
   cp "$file" "$file.old-$stamp"
   jq -f "$here/layout.jq" "$file.old-$stamp" >"$file.tmp" || { rm -f "$file.tmp"; fail "could not add the panel to $name"; }
@@ -103,9 +130,10 @@ install_packages() {
   else echo "packages: bun install failed, so the charts get the plain layout until it works" >&2; fi
 }
 
+own_layout "${1:-$(shown_layout)}"
 link_mod
 install_packages
 add_keys
-add_blocks "${1:-$(shown_layout)}"
-herdr-app check "$app_home/mods/chartroom"
+add_blocks "$layout"
+"$herdr" check "$app_home/mods/chartroom"
 echo "Chartroom in the tab bar, or cmd-alt-f, opens it full size; cmd-alt-shift-f opens it beside the terminals."
